@@ -1106,8 +1106,10 @@ main :: proc() {
 
 		// ── Export button ──
 		export_btn_rect := rl.Rectangle{f32(MARGIN), EXPORT_BTN_Y, 120, 28}
+		export_toggled := false
 		if exp_click, _ := draw_button(export_btn_rect, "Export", mouse, 14); exp_click {
 			app.export_open = !app.export_open
+			export_toggled = true
 		}
 		rl.DrawText("Drop an image to extract colors", MARGIN + 136, EXPORT_BTN_Y + 7, 12, DIM)
 
@@ -1120,9 +1122,9 @@ main :: proc() {
 			panel_x := f32(WINDOW_W) / 2 - panel_w / 2
 			panel_y := f32(WINDOW_H) / 2 - panel_h / 2
 
-			// Click outside panel to close
+			// Click outside panel to close (skip frame it was opened)
 			panel_rect := rl.Rectangle{panel_x, panel_y, panel_w, panel_h}
-			if rl.IsMouseButtonPressed(.LEFT) && !rl.CheckCollisionPointRec(mouse, panel_rect) && !app.export_fmt_open {
+			if rl.IsMouseButtonPressed(.LEFT) && !export_toggled && !rl.CheckCollisionPointRec(mouse, panel_rect) && !app.export_fmt_open {
 				app.export_open = false
 				app.export_name_focused = false
 			}
