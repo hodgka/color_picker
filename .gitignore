@@ -1,2 +1,8 @@
 color_picker
+*.json
+*.png
+*.ase
+*.gpl
+*.css
+*.js
 *.txt

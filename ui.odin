@@ -185,3 +185,260 @@ draw_color_swatch_row :: proc(
 format_hex_cstr :: proc(color: rl.Color) -> cstring {
 	return fmt.ctprintf("#%02X%02X%02X", color.r, color.g, color.b)
 }
+
+// ── Reusable text input ──
+
+TextInput :: struct {
+	buf:        [64]u8,
+	len:        int,
+	cursor:     int,
+	sel_start:  int,
+	sel_end:    int,
+	focused:    bool,
+	blink:      f32,
+	filter:     TextFilter,
+	last_click: f64,
+}
+
+TextFilter :: enum {
+	Any,
+	Hex,
+}
+
+text_input_init :: proc(initial: string, filter: TextFilter = .Any) -> TextInput {
+	ti: TextInput
+	ti.filter = filter
+	n := min(len(initial), 63)
+	for i in 0 ..< n do ti.buf[i] = initial[i]
+	ti.len = n
+	ti.cursor = n
+	ti.sel_start = -1
+	ti.sel_end = -1
+	return ti
+}
+
+text_input_has_selection :: proc(ti: ^TextInput) -> bool {
+	return ti.sel_start >= 0 && ti.sel_end >= 0 && ti.sel_start != ti.sel_end
+}
+
+text_input_delete_selection :: proc(ti: ^TextInput) {
+	if !text_input_has_selection(ti) do return
+	lo := min(ti.sel_start, ti.sel_end)
+	hi := max(ti.sel_start, ti.sel_end)
+	for j in hi ..< ti.len {
+		ti.buf[j - (hi - lo)] = ti.buf[j]
+	}
+	ti.len -= (hi - lo)
+	ti.cursor = lo
+	ti.sel_start = -1
+	ti.sel_end = -1
+}
+
+text_input_select_all :: proc(ti: ^TextInput) {
+	ti.sel_start = 0
+	ti.sel_end = ti.len
+	ti.cursor = ti.len
+}
+
+text_input_get_string :: proc(ti: ^TextInput) -> string {
+	return string(ti.buf[:ti.len])
+}
+
+text_input_char_allowed :: proc(c: u8, filter: TextFilter) -> bool {
+	if filter == .Hex {
+		return is_hex_char(c)
+	}
+	return c >= 32 && c < 127
+}
+
+text_input_update :: proc(ti: ^TextInput, dt: f32, max_len: int = 63) {
+	if !ti.focused do return
+	ti.blink += dt
+
+	// Character input
+	for ch := rl.GetCharPressed(); ch != 0; ch = rl.GetCharPressed() {
+		c := u8(ch)
+		if !text_input_char_allowed(c, ti.filter) do continue
+
+		if text_input_has_selection(ti) {
+			text_input_delete_selection(ti)
+		}
+
+		if ti.len >= max_len do continue
+
+		if ti.filter == .Hex do c = upper_hex(c)
+
+		for j := ti.len; j > ti.cursor; j -= 1 {
+			ti.buf[j] = ti.buf[j - 1]
+		}
+		ti.buf[ti.cursor] = c
+		ti.cursor += 1
+		ti.len += 1
+		ti.blink = 0
+		ti.sel_start = -1
+		ti.sel_end = -1
+	}
+
+	// Backspace
+	if rl.IsKeyPressed(.BACKSPACE) {
+		if text_input_has_selection(ti) {
+			text_input_delete_selection(ti)
+		} else if is_cmd_down() {
+			// Cmd+Backspace: delete everything before cursor
+			for j in ti.cursor ..< ti.len {
+				ti.buf[j - ti.cursor] = ti.buf[j]
+			}
+			ti.len -= ti.cursor
+			ti.cursor = 0
+		} else if ti.cursor > 0 {
+			ti.cursor -= 1
+			for j in ti.cursor ..< ti.len - 1 {
+				ti.buf[j] = ti.buf[j + 1]
+			}
+			ti.len -= 1
+		}
+		ti.blink = 0
+		ti.sel_start = -1
+		ti.sel_end = -1
+	}
+
+	// Delete
+	if rl.IsKeyPressed(.DELETE) {
+		if text_input_has_selection(ti) {
+			text_input_delete_selection(ti)
+		} else if ti.cursor < ti.len {
+			for j in ti.cursor ..< ti.len - 1 {
+				ti.buf[j] = ti.buf[j + 1]
+			}
+			ti.len -= 1
+		}
+		ti.blink = 0
+	}
+
+	// Arrow keys
+	if rl.IsKeyPressed(.LEFT) && ti.cursor > 0 {
+		if is_cmd_down() {
+			ti.cursor = 0
+		} else {
+			ti.cursor -= 1
+		}
+		ti.blink = 0
+		ti.sel_start = -1
+		ti.sel_end = -1
+	}
+	if rl.IsKeyPressed(.RIGHT) && ti.cursor < ti.len {
+		if is_cmd_down() {
+			ti.cursor = ti.len
+		} else {
+			ti.cursor += 1
+		}
+		ti.blink = 0
+		ti.sel_start = -1
+		ti.sel_end = -1
+	}
+
+	// Home / End
+	if rl.IsKeyPressed(.HOME) { ti.cursor = 0; ti.blink = 0; ti.sel_start = -1; ti.sel_end = -1 }
+	if rl.IsKeyPressed(.END) { ti.cursor = ti.len; ti.blink = 0; ti.sel_start = -1; ti.sel_end = -1 }
+
+	// Cmd+A: select all
+	if is_cmd_down() && rl.IsKeyPressed(.A) {
+		text_input_select_all(ti)
+		ti.blink = 0
+	}
+}
+
+text_input_handle_click :: proc(ti: ^TextInput, rect: rl.Rectangle, mouse: rl.Vector2, font_size: i32, x_offset: i32 = 10) {
+	if !rl.IsMouseButtonPressed(.LEFT) do return
+
+	was_focused := ti.focused
+	ti.focused = rl.CheckCollisionPointRec(mouse, rect)
+
+	if !ti.focused {
+		ti.sel_start = -1
+		ti.sel_end = -1
+		return
+	}
+
+	now := rl.GetTime()
+	time_since := now - ti.last_click
+	ti.last_click = now
+
+	if was_focused && time_since < 0.35 {
+		text_input_select_all(ti)
+	} else {
+		click_px := i32(mouse.x) - i32(rect.x) - x_offset
+		best := ti.len
+		tmp: [65]u8
+		for j in 0 ..< ti.len do tmp[j] = ti.buf[j]
+		for j in 0 ..= ti.len {
+			tmp[j] = 0
+			w := rl.MeasureText(cstring(&tmp[0]), font_size)
+			if j < ti.len do tmp[j] = ti.buf[j]
+			if click_px < w {
+				best = max(j - 1, 0)
+				break
+			}
+		}
+		ti.cursor = clamp(best, 0, ti.len)
+		ti.sel_start = -1
+		ti.sel_end = -1
+	}
+	ti.blink = 0
+}
+
+text_input_draw :: proc(
+	ti: ^TextInput,
+	rect: rl.Rectangle,
+	font_size: i32 = 18,
+	prefix: cstring = "",
+	x_offset: i32 = 10,
+) {
+	bg := ti.focused ? rl.Color{58, 58, 82, 255} : OVERLAY
+	rl.DrawRectangleRounded(rect, 0.3, 6, bg)
+	if ti.focused {
+		rl.DrawRectangleRounded(
+			{rect.x - 1, rect.y - 1, rect.width + 2, rect.height + 2},
+			0.3, 6, ACCENT,
+		)
+		rl.DrawRectangleRounded(rect, 0.3, 6, bg)
+	}
+
+	tx := i32(rect.x) + x_offset
+	ty := i32(rect.y) + (i32(rect.height) - font_size) / 2
+
+	prefix_w: i32 = 0
+	if prefix != "" {
+		rl.DrawText(prefix, tx, ty, font_size, SUBTEXT)
+		prefix_w = rl.MeasureText(prefix, font_size) + 4
+	}
+
+	char_x := tx + prefix_w
+
+	// Measure position of each character using raylib's text measurement
+	text_str: [65]u8
+	for j in 0 ..< ti.len do text_str[j] = ti.buf[j]
+	text_str[ti.len] = 0
+
+	// Selection highlight
+	if text_input_has_selection(ti) {
+		lo := min(ti.sel_start, ti.sel_end)
+		hi := max(ti.sel_start, ti.sel_end)
+		lo_str := text_str
+		lo_str[lo] = 0
+		hi_str := text_str
+		hi_str[hi] = 0
+		sel_x := rl.MeasureText(cstring(&lo_str[0]), font_size)
+		sel_w := rl.MeasureText(cstring(&hi_str[0]), font_size) - sel_x
+		rl.DrawRectangle(char_x + sel_x, ty, sel_w, font_size, {137, 180, 250, 80})
+	}
+
+	rl.DrawText(cstring(&text_str[0]), char_x, ty, font_size, TEXT_CLR)
+
+	if ti.focused && int(ti.blink * 1.8) % 2 == 0 {
+		cursor_str := text_str
+		cursor_str[ti.cursor] = 0
+		cx := char_x + rl.MeasureText(cstring(&cursor_str[0]), font_size)
+		rl.DrawRectangle(cx, ty, 2, font_size, ACCENT)
+	}
+}

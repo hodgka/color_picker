@@ -64,7 +64,7 @@ DragState :: struct {
 	wheel: bool,
 }
 
-EXPORT_FORMATS :: [7]cstring{"ASE", "GPL", "CSS", "Tailwind", "JSON", "PNG", "Hex Array"}
+EXPORT_FORMATS :: [7]cstring{"ASE", "GPL", "CSS", "Tailwind", "JSON", "PNG", "TXT"}
 
 AppState :: struct {
 	cs:              ColorState,
@@ -100,9 +100,11 @@ AppState :: struct {
 	hue_tex:         rl.Texture2D,
 	wheel_img:       rl.Image,
 	wheel_tex:       rl.Texture2D,
-	hex_cursor:      int,
-	hex_focused:     bool,
-	hex_blink:       f32,
+	hex_cursor:       int,
+	hex_focused:      bool,
+	hex_blink:        f32,
+	hex_select_all:   bool,
+	hex_last_click:   f32,
 	drags:           DragState,
 	copied_timer:    f32,
 	palette_drag:      int,
@@ -117,9 +119,7 @@ AppState :: struct {
 	export_open:       bool,
 	export_format:     int,
 	export_fmt_open:   bool,
-	export_name_buf:   [32]u8,
-	export_name_len:   int,
-	export_name_focused: bool,
+	export_name:       TextInput,
 }
 
 commit_color :: proc(app: ^AppState) {
@@ -142,12 +142,8 @@ update_shades :: proc(app: ^AppState) {
 	app.shades, app.shade_count = generate_shades(app.cs.hue, app.cs.sat, app.shade_req, app.shade_v_min, app.shade_v_max)
 }
 
-init_export_name :: proc(app: ^AppState) {
-	name := "palette"
-	for i in 0 ..< len(name) {
-		app.export_name_buf[i] = name[i]
-	}
-	app.export_name_len = len(name)
+init_app_inputs :: proc(app: ^AppState) {
+	app.export_name = text_input_init("palette")
 }
 
 // ── Main ──
@@ -168,7 +164,7 @@ main :: proc() {
 	app.shade_req = 9
 	app.shade_v_min = 0.05
 	app.shade_v_max = 0.95
-	init_export_name(&app)
+	init_app_inputs(&app)
 
 	app.sv_img = rl.GenImageColor(SV_SIZE, SV_SIZE, rl.WHITE)
 	rebuild_sv(&app.sv_img, app.cs.hue, SV_SIZE)
@@ -272,7 +268,7 @@ main :: proc() {
 		if app.export_open {
 			if rl.IsKeyPressed(.ESCAPE) {
 				app.export_open = false
-				app.export_name_focused = false
+				app.export_name.focused = false
 				app.export_fmt_open = false
 			}
 
@@ -281,57 +277,47 @@ main :: proc() {
 			panel_x := f32(WINDOW_W) / 2 - panel_w / 2
 			panel_y := f32(WINDOW_H) / 2 - panel_h / 2
 
-			name_field := rl.Rectangle{panel_x + 20, panel_y + 50, panel_w - 40, 30}
-			if rl.IsMouseButtonPressed(.LEFT) {
-				app.export_name_focused = rl.CheckCollisionPointRec(mouse, name_field)
-			}
-
-			if app.export_name_focused {
-				for ch := rl.GetCharPressed(); ch != 0; ch = rl.GetCharPressed() {
-					c := u8(ch)
-					if app.export_name_len < 30 && c >= 32 && c < 127 {
-						app.export_name_buf[app.export_name_len] = c
-						app.export_name_len += 1
-					}
-				}
-				if rl.IsKeyPressed(.BACKSPACE) && app.export_name_len > 0 {
-					app.export_name_len -= 1
-				}
-			}
+			name_field := rl.Rectangle{panel_x + 20, panel_y + 56, panel_w - 40, 28}
+			text_input_handle_click(&app.export_name, name_field, mouse, 14)
+			text_input_update(&app.export_name, dt, 30)
 
 			format_rect := rl.Rectangle{panel_x + 20, panel_y + 96, panel_w - 40, 28}
 			// Format dropdown handled in drawing section
 
-			save_rect := rl.Rectangle{panel_x + 20, panel_y + 140, 110, 30}
-			copy_rect := rl.Rectangle{panel_x + 140, panel_y + 140, 110, 30}
-			cancel_rect := rl.Rectangle{panel_x + panel_w - 90, panel_y + 140, 70, 30}
+			save_rect := rl.Rectangle{panel_x + 20, panel_y + 150, 110, 30}
+			copy_rect := rl.Rectangle{panel_x + 140, panel_y + 150, 110, 30}
+			cancel_rect := rl.Rectangle{panel_x + panel_w - 90, panel_y + 150, 70, 30}
 
 			if rl.IsMouseButtonPressed(.LEFT) && app.palette_count > 0 {
 				colors := app.palette[:app.palette_count]
-				name := string(app.export_name_buf[:app.export_name_len])
+				name := text_input_get_string(&app.export_name)
 
 				if rl.CheckCollisionPointRec(mouse, save_rect) {
-				switch app.export_format {
-				case 0: export_ase(colors, string(fmt.ctprintf("%s.ase", name)))
-				case 1: export_gpl(colors, string(fmt.ctprintf("%s.gpl", name)))
-				case 5: export_png_strip(colors, string(fmt.ctprintf("%s.png", name)))
+					exts := [7]string{".ase", ".gpl", ".css", ".js", ".json", ".png", ".txt"}
+					ext := exts[app.export_format]
+					path := string(fmt.ctprintf("%s%s", name, ext))
+					switch app.export_format {
+					case 0: export_ase(colors, path)
+					case 1: export_gpl(colors, path)
+					case 5: export_png_strip(colors, path)
 					case:
-						rl.SetClipboardText(fmt.ctprintf("%s", export_for_format(colors, app.export_format)))
-						app.copied_timer = 1.5
+						text := export_for_format(colors, app.export_format)
+						export_text_file(text, path)
 					}
 					app.export_open = false
-					app.export_name_focused = false
+					app.export_name.focused = false
+					app.copied_timer = 1.5
 				}
 				if rl.CheckCollisionPointRec(mouse, copy_rect) {
-					rl.SetClipboardText(fmt.ctprintf("%s", export_for_format(colors, app.export_format)))
+					rl.SetClipboardText(export_for_format(colors, app.export_format))
 					app.copied_timer = 1.5
 					app.export_open = false
-					app.export_name_focused = false
+					app.export_name.focused = false
 				}
 			}
 			if rl.IsMouseButtonPressed(.LEFT) && rl.CheckCollisionPointRec(mouse, cancel_rect) {
 				app.export_open = false
-				app.export_name_focused = false
+				app.export_name.focused = false
 			}
 		}
 
@@ -430,8 +416,15 @@ main :: proc() {
 			if rl.IsMouseButtonPressed(.LEFT) {
 				was := app.hex_focused
 				app.hex_focused = rl.CheckCollisionPointRec(mouse, hex_field)
-				if app.hex_focused && !was {
-					app.hex_cursor = app.cs.hex_len
+				if app.hex_focused {
+					time_since := rl.GetTime() - f64(app.hex_last_click)
+					app.hex_last_click = f32(rl.GetTime())
+					if was && time_since < 0.35 {
+						app.hex_select_all = true
+					} else {
+						app.hex_select_all = false
+						app.hex_cursor = app.cs.hex_len
+					}
 					app.hex_blink = 0
 				}
 				if rl.CheckCollisionPointRec(mouse, copy_btn) {
@@ -444,9 +437,24 @@ main :: proc() {
 
 			if app.hex_focused {
 				app.hex_blink += dt
+
+				// Cmd+A: select all
+				if is_cmd_down() && rl.IsKeyPressed(.A) {
+					app.hex_select_all = true
+					app.hex_blink = 0
+				}
+
 				for ch := rl.GetCharPressed(); ch != 0; ch = rl.GetCharPressed() {
 					c := u8(ch)
-					if is_hex_char(c) && app.cs.hex_len < 6 {
+					if !is_hex_char(c) do continue
+
+					if app.hex_select_all {
+						app.cs.hex_len = 0
+						app.hex_cursor = 0
+						app.hex_select_all = false
+					}
+
+					if app.cs.hex_len < 6 {
 						for j := app.cs.hex_len; j > app.hex_cursor; j -= 1 {
 							app.cs.hex_buf[j] = app.cs.hex_buf[j - 1]
 						}
@@ -456,27 +464,57 @@ main :: proc() {
 						app.hex_blink = 0
 					}
 				}
-				if rl.IsKeyPressed(.BACKSPACE) && app.hex_cursor > 0 {
-					app.hex_cursor -= 1
-					for j in app.hex_cursor ..< app.cs.hex_len - 1 {
-						app.cs.hex_buf[j] = app.cs.hex_buf[j + 1]
+
+				if rl.IsKeyPressed(.BACKSPACE) {
+					if app.hex_select_all {
+						app.cs.hex_len = 0
+						app.hex_cursor = 0
+						app.hex_select_all = false
+					} else if is_cmd_down() {
+						for j in app.hex_cursor ..< app.cs.hex_len {
+							app.cs.hex_buf[j - app.hex_cursor] = app.cs.hex_buf[j]
+						}
+						app.cs.hex_len -= app.hex_cursor
+						app.hex_cursor = 0
+					} else if app.hex_cursor > 0 {
+						app.hex_cursor -= 1
+						for j in app.hex_cursor ..< app.cs.hex_len - 1 {
+							app.cs.hex_buf[j] = app.cs.hex_buf[j + 1]
+						}
+						app.cs.hex_len -= 1
 					}
-					app.cs.hex_len -= 1
 					app.hex_blink = 0
 				}
-				if rl.IsKeyPressed(.DELETE) && app.hex_cursor < app.cs.hex_len {
-					for j in app.hex_cursor ..< app.cs.hex_len - 1 {
-						app.cs.hex_buf[j] = app.cs.hex_buf[j + 1]
+				if rl.IsKeyPressed(.DELETE) {
+					if app.hex_select_all {
+						app.cs.hex_len = 0
+						app.hex_cursor = 0
+						app.hex_select_all = false
+					} else if app.hex_cursor < app.cs.hex_len {
+						for j in app.hex_cursor ..< app.cs.hex_len - 1 {
+							app.cs.hex_buf[j] = app.cs.hex_buf[j + 1]
+						}
+						app.cs.hex_len -= 1
 					}
-					app.cs.hex_len -= 1
 					app.hex_blink = 0
 				}
-				if rl.IsKeyPressed(.LEFT) && app.hex_cursor > 0 { app.hex_cursor -= 1; app.hex_blink = 0 }
-				if rl.IsKeyPressed(.RIGHT) && app.hex_cursor < app.cs.hex_len { app.hex_cursor += 1; app.hex_blink = 0 }
+				if rl.IsKeyPressed(.LEFT) {
+					app.hex_select_all = false
+					if is_cmd_down() { app.hex_cursor = 0 }
+					else if app.hex_cursor > 0 { app.hex_cursor -= 1 }
+					app.hex_blink = 0
+				}
+				if rl.IsKeyPressed(.RIGHT) {
+					app.hex_select_all = false
+					if is_cmd_down() { app.hex_cursor = app.cs.hex_len }
+					else if app.hex_cursor < app.cs.hex_len { app.hex_cursor += 1 }
+					app.hex_blink = 0
+				}
 
 				if rl.IsKeyPressed(.ENTER) {
 					if color_apply_hex(&app.cs) {
 						app.hex_focused = false
+						app.hex_select_all = false
 						commit_color(&app)
 					}
 				}
@@ -490,6 +528,7 @@ main :: proc() {
 							for j in 0 ..< 6 do app.cs.hex_buf[j] = upper_hex(ps[j])
 							app.cs.hex_len = 6
 							app.hex_cursor = 6
+							app.hex_select_all = false
 							color_apply_hex(&app.cs)
 						}
 					}
@@ -509,7 +548,7 @@ main :: proc() {
 			}
 
 			// ── Global shortcuts ──
-			if !app.hex_focused && !app.export_name_focused {
+			if !app.hex_focused && !app.export_name.focused {
 				if is_cmd_down() && rl.IsKeyPressed(.C) {
 					c := color_get(&app.cs)
 					rl.SetClipboardText(fmt.ctprintf("#%02X%02X%02X", c.r, c.g, c.b))
@@ -894,11 +933,15 @@ main :: proc() {
 		hash_y := i32(hex_field.y) + 7
 		rl.DrawText("#", hash_x, hash_y, 18, SUBTEXT)
 		hex_text_x := hash_x + 14
+
+		if app.hex_focused && app.hex_select_all && app.cs.hex_len > 0 {
+			rl.DrawRectangle(hex_text_x, hash_y, i32(app.cs.hex_len) * 12, 18, {137, 180, 250, 80})
+		}
 		for j in 0 ..< app.cs.hex_len {
 			ch_str: [2]u8 = {app.cs.hex_buf[j], 0}
 			rl.DrawText(cstring(&ch_str[0]), hex_text_x + i32(j) * 12, hash_y, 18, TEXT_CLR)
 		}
-		if app.hex_focused && int(app.hex_blink * 1.8) % 2 == 0 {
+		if app.hex_focused && int(app.hex_blink * 1.8) % 2 == 0 && !app.hex_select_all {
 			rl.DrawRectangle(hex_text_x + i32(app.hex_cursor) * 12, hash_y, 2, 18, ACCENT)
 		}
 
@@ -1126,7 +1169,7 @@ main :: proc() {
 			panel_rect := rl.Rectangle{panel_x, panel_y, panel_w, panel_h}
 			if rl.IsMouseButtonPressed(.LEFT) && !export_toggled && !rl.CheckCollisionPointRec(mouse, panel_rect) && !app.export_fmt_open {
 				app.export_open = false
-				app.export_name_focused = false
+				app.export_name.focused = false
 			}
 
 			rl.DrawRectangleRounded({panel_x - 1, panel_y - 1, panel_w + 2, panel_h + 2}, 0.05, 8, OVERLAY)
@@ -1136,16 +1179,7 @@ main :: proc() {
 
 			rl.DrawText("Filename:", i32(panel_x) + 20, i32(panel_y) + 42, 12, SUBTEXT)
 			name_field := rl.Rectangle{panel_x + 20, panel_y + 56, panel_w - 40, 28}
-			name_bg := app.export_name_focused ? rl.Color{58, 58, 82, 255} : OVERLAY
-			rl.DrawRectangleRounded(name_field, 0.3, 4, name_bg)
-			if app.export_name_focused {
-				rl.DrawRectangleRounded({name_field.x - 1, name_field.y - 1, name_field.width + 2, name_field.height + 2}, 0.3, 4, ACCENT)
-				rl.DrawRectangleRounded(name_field, 0.3, 4, name_bg)
-			}
-			name_str: [33]u8
-			for i in 0 ..< app.export_name_len do name_str[i] = app.export_name_buf[i]
-			name_str[app.export_name_len] = 0
-			rl.DrawText(cstring(&name_str[0]), i32(name_field.x) + 8, i32(name_field.y) + 6, 14, TEXT_CLR)
+			text_input_draw(&app.export_name, name_field, 14)
 
 			rl.DrawText("Format:", i32(panel_x) + 20, i32(panel_y) + 92, 12, SUBTEXT)
 			format_rect := rl.Rectangle{panel_x + 20, panel_y + 106, panel_w - 40, 28}
@@ -1176,7 +1210,7 @@ main :: proc() {
 			cancel_rect := rl.Rectangle{panel_x + panel_w - 90, panel_y + 150, 70, 30}
 
 			draw_button(save_rect, "Save File", mouse, 13)
-			draw_button(copy_export, "Copy Text", mouse, 13)
+			draw_button(copy_export, "Copy List", mouse, 13)
 			draw_button(cancel_rect, "Cancel", mouse, 13)
 
 			if app.palette_count == 0 {
@@ -1358,7 +1392,7 @@ main :: proc() {
 	}
 }
 
-export_for_format :: proc(colors: []rl.Color, format: int) -> string {
+export_for_format :: proc(colors: []rl.Color, format: int) -> cstring {
 	switch format {
 	case 2: return export_css(colors)
 	case 3: return export_tailwind(colors)
