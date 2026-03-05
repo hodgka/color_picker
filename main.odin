@@ -110,6 +110,8 @@ AppState :: struct {
 	palette_drag:      int,
 	palette_dragging:  bool,
 	drop_flash_timer:  f32,
+	error_timer:       f32,
+	error_msg:         cstring,
 	eyedropper_active: bool,
 	eyedropper_img:    rl.Image,
 	eyedropper_tex:    rl.Texture2D,
@@ -206,20 +208,33 @@ main :: proc() {
 		dt := rl.GetFrameTime()
 		mouse := rl.GetMousePosition()
 		if app.copied_timer > 0 do app.copied_timer -= dt
+		if app.error_timer > 0 do app.error_timer -= dt
 
 		// ── Eyedropper mode ──
 		if app.eyedropper_active {
+			iw := f32(app.eyedropper_img.width)
+			ih := f32(app.eyedropper_img.height)
+			ww := f32(WINDOW_W)
+			wh := f32(WINDOW_H)
+
 			rl.BeginDrawing()
-			rl.DrawTexture(app.eyedropper_tex, 0, 0, rl.WHITE)
+			rl.ClearBackground(rl.BLACK)
+			rl.DrawTexturePro(
+				app.eyedropper_tex,
+				{0, 0, iw, ih},
+				{0, 0, ww, wh},
+				{0, 0}, 0, rl.WHITE,
+			)
 			cx, cy := i32(mouse.x), i32(mouse.y)
 			rl.DrawCircleLines(cx, cy, 10, rl.WHITE)
 			rl.DrawCircleLines(cx, cy, 11, rl.BLACK)
+			rl.DrawText("Click to pick color, ESC to cancel", 10, WINDOW_H - 24, 14, rl.WHITE)
 			rl.EndDrawing()
 
 			if rl.IsMouseButtonPressed(.LEFT) {
-				px := clamp(i32(mouse.x), 0, app.eyedropper_img.width - 1)
-				py := clamp(i32(mouse.y), 0, app.eyedropper_img.height - 1)
-				picked := rl.GetImageColor(app.eyedropper_img, px, py)
+				img_x := clamp(i32(mouse.x / ww * iw), 0, app.eyedropper_img.width - 1)
+				img_y := clamp(i32(mouse.y / wh * ih), 0, app.eyedropper_img.height - 1)
+				picked := rl.GetImageColor(app.eyedropper_img, img_x, img_y)
 				color_set_rgb(&app.cs, picked)
 				commit_color(&app)
 				rl.UnloadImage(app.eyedropper_img)
@@ -729,12 +744,22 @@ main :: proc() {
 
 		eye_btn := rl.Rectangle{toggle_rect.x + toggle_rect.width + 10, f32(CONTROLS_Y), 90, 26}
 		if eye_clicked, _ := draw_button(eye_btn, "Eyedropper", mouse, 12); eye_clicked {
-			if eyedropper_capture() {
+			rl.SetWindowState({.WINDOW_HIDDEN})
+			rl.WaitTime(1.0)
+			captured := eyedropper_capture()
+			rl.ClearWindowState({.WINDOW_HIDDEN})
+			if captured {
 				app.eyedropper_img = rl.LoadImage(SCREENSHOT_PATH)
 				if app.eyedropper_img.data != nil {
 					app.eyedropper_tex = rl.LoadTextureFromImage(app.eyedropper_img)
 					app.eyedropper_active = true
+				} else {
+					app.error_msg = "Failed to load screenshot"
+					app.error_timer = 8
 				}
+			} else {
+				app.error_msg = "Screen capture failed. Grant Screen Recording permission in System Settings."
+				app.error_timer = 10
 			}
 		}
 
@@ -1289,6 +1314,17 @@ main :: proc() {
 					app.harmony_open = false
 				}
 			}
+		}
+
+		// ── Error message toast ──
+		if app.error_timer > 0 && app.error_msg != nil {
+			alpha := u8(clamp(app.error_timer, 0, 1) * 220)
+			tw := rl.MeasureText(app.error_msg, 14)
+			bw := tw + 30
+			bx := (WINDOW_W - bw) / 2
+			by: i32 = WINDOW_H - 80
+			rl.DrawRectangleRounded({f32(bx), f32(by), f32(bw), 32}, 0.3, 6, {60, 20, 20, alpha})
+			rl.DrawText(app.error_msg, bx + 15, by + 8, 14, {243, 139, 168, alpha})
 		}
 
 		// ── Image extraction overlay ──
