@@ -2,126 +2,141 @@ package color_picker
 
 import rl "vendor:raylib"
 import "core:fmt"
-import "core:os"
+import "core:math"
 
-WINDOW_W :: 700
-WINDOW_H :: 620
+// ── Layout ──
+
+WINDOW_W :: 960
+WINDOW_H :: 780
+MARGIN   :: 24
+
+PICKER_SIZE :: 340
+PICKER_X    :: MARGIN
+PICKER_Y    :: 50
+LEFT_W      :: PICKER_SIZE
+
+RIGHT_X :: PICKER_X + LEFT_W + 28
+RIGHT_W :: WINDOW_W - RIGHT_X - MARGIN
+
+PREVIEW_H       :: 100
+PREVIEW_Y       :: PICKER_Y
+CONTRAST_INFO_Y :: PREVIEW_Y + PREVIEW_H + 8
+HEX_FIELD_Y     :: CONTRAST_INFO_Y + 48
+SLIDER_BASE_Y   :: HEX_FIELD_Y + 44
+SLIDER_SPACING  :: 30
+HSV_SLIDER_Y    :: SLIDER_BASE_Y + 3 * SLIDER_SPACING + 14
+HINT_Y          :: HSV_SLIDER_Y + 3 * SLIDER_SPACING + 8
 
 SV_SIZE   :: 280
 HUE_BAR_H :: 20
-MARGIN    :: 24
-GAP       :: 14
+SV_X      :: PICKER_X
+SV_Y      :: PICKER_Y
 
-SV_X :: MARGIN
-SV_Y :: 50
-HUE_Y :: SV_Y + SV_SIZE + GAP
+HARMONY_SECTION_Y :: PICKER_Y + PICKER_SIZE + 46
 
-RIGHT_X :: SV_X + SV_SIZE + 28
-RIGHT_W :: WINDOW_W - RIGHT_X - MARGIN
+HISTORY_Y  :: HINT_Y + 24
+EXPORT_BTN_Y :: WINDOW_H - 44
 
-PREVIEW_H :: 100
+COLS_PER_ROW :: (WINDOW_W - 2 * MARGIN) / SWATCH_STRIDE
 
-SWATCH_SZ       :: 32
-SWATCH_GAP      :: 5
-SWATCH_STRIDE   :: SWATCH_SZ + SWATCH_GAP
-MAX_PALETTE     :: 48
-PALETTE_LABEL_Y :: 454
-PALETTE_Y       :: 476
-PALETTE_FILE    :: "palette.txt"
-COLS_PER_ROW    :: (WINDOW_W - 2 * MARGIN) / SWATCH_STRIDE
+// ── Picker mode ──
 
-BG      :: rl.Color{24, 24, 37, 255}
-SURFACE :: rl.Color{30, 30, 46, 255}
-OVERLAY :: rl.Color{49, 50, 68, 255}
-TEXT_CLR :: rl.Color{205, 214, 244, 255}
-SUBTEXT :: rl.Color{166, 173, 200, 255}
-ACCENT  :: rl.Color{137, 180, 250, 255}
-DIM     :: rl.Color{88, 91, 112, 255}
-
-// ── Color state ──
-
-ColorState :: struct {
-	hue, sat, val: f32,
-	hex_buf:       [6]u8,
-	hex_len:       int,
+PickerMode :: enum {
+	Wheel,
+	Square,
 }
 
-color_init :: proc(h: f32 = 0, s: f32 = 1, v: f32 = 1) -> ColorState {
-	cs := ColorState{hue = h, sat = s, val = v}
-	sync_hex(&cs.hex_buf, rl.ColorFromHSV(h, s, v))
-	cs.hex_len = 6
-	return cs
+// ── Contrast slot ──
+
+SlotTarget :: enum {
+	None,
+	FG,
+	BG,
 }
 
-color_get :: proc(cs: ^ColorState) -> rl.Color {
-	return rl.ColorFromHSV(cs.hue, cs.sat, cs.val)
+// ── App state ──
+
+DragState :: struct {
+	sv:    bool,
+	hue:   bool,
+	rgb:   [3]bool,
+	hsv:   [3]bool,
+	wheel: bool,
 }
 
-// Sets color from HSV values. Syncs hex buffer.
-// Used when input source is HSV (SV picker, hue bar, HSV sliders).
-color_set_hsv :: proc(cs: ^ColorState, h, s, v: f32) {
-	cs.hue = h
-	cs.sat = s
-	cs.val = v
-	sync_hex(&cs.hex_buf, rl.ColorFromHSV(h, s, v))
-	cs.hex_len = 6
+EXPORT_FORMATS :: [7]cstring{"ASE", "GPL", "CSS", "Tailwind", "JSON", "PNG", "Hex Array"}
+
+AppState :: struct {
+	cs:              ColorState,
+	picker_mode:     PickerMode,
+	harmony_type:    int,
+	harmony_open:    bool,
+	harmony_colors:  [MAX_HARMONY]rl.Color,
+	harmony_count:   int,
+	harmony_req:     int,
+	fg_slot:         rl.Color,
+	bg_slot:         rl.Color,
+	active_slot:     SlotTarget,
+	shades:          [MAX_SHADES]rl.Color,
+	shade_count:     int,
+	shade_req:       int,
+	shade_v_min:     f32,
+	shade_v_max:     f32,
+	history:         [HISTORY_MAX]rl.Color,
+	history_count:   int,
+	history_head:    int,
+	palette:         [MAX_PALETTE]rl.Color,
+	palette_count:   int,
+	palette_hover:   int,
+	extracted:       [EXTRACT_COUNT]rl.Color,
+	extracted_count: int,
+	sv_img:          rl.Image,
+	sv_tex:          rl.Texture2D,
+	hue_tex:         rl.Texture2D,
+	wheel_img:       rl.Image,
+	wheel_tex:       rl.Texture2D,
+	hex_cursor:      int,
+	hex_focused:     bool,
+	hex_blink:       f32,
+	drags:           DragState,
+	copied_timer:    f32,
+	eyedropper_active: bool,
+	eyedropper_img:    rl.Image,
+	eyedropper_tex:    rl.Texture2D,
+	export_open:       bool,
+	export_format:     int,
+	export_fmt_open:   bool,
+	export_name_buf:   [32]u8,
+	export_name_len:   int,
+	export_name_focused: bool,
 }
 
-// Sets color from an RGB value. Syncs hex buffer from the exact RGB input.
-// When preserve_hue is true, keeps current hue if the color is achromatic.
-// Used when input source is RGB (RGB sliders).
-color_set_rgb :: proc(cs: ^ColorState, color: rl.Color, preserve_hue := false) {
-	hsv := rl.ColorToHSV(color)
-	if preserve_hue {
-		if hsv.x != 0 || hsv.y > 0.01 do cs.hue = hsv.x
-	} else {
-		cs.hue = hsv.x
+commit_color :: proc(app: ^AppState) {
+	c := color_get(&app.cs)
+	history_push(app.history[:], &app.history_count, &app.history_head, c)
+	switch app.active_slot {
+	case .FG:  app.fg_slot = c
+	case .BG:  app.bg_slot = c
+	case .None:
 	}
-	cs.sat = hsv.y
-	cs.val = hsv.z
-	sync_hex(&cs.hex_buf, color)
-	cs.hex_len = 6
 }
 
-// Applies the current hex buffer to HSV without syncing hex back.
-// Avoids overwriting user-typed hex values with HSV-roundtripped approximations.
-// Used when input source is the hex field (typing, paste, enter).
-color_apply_hex :: proc(cs: ^ColorState, preserve_hue := false) -> bool {
-	if cs.hex_len != 6 do return false
-	c, ok := parse_hex(cs.hex_buf[:6])
-	if !ok do return false
-	hsv := rl.ColorToHSV(c)
-	if preserve_hue {
-		if hsv.x != 0 || hsv.y > 0.01 do cs.hue = hsv.x
-	} else {
-		cs.hue = hsv.x
-	}
-	cs.sat = hsv.y
-	cs.val = hsv.z
-	return true
+update_harmony :: proc(app: ^AppState) {
+	ht := HarmonyType(app.harmony_type)
+	app.harmony_colors, app.harmony_count = compute_harmony(app.cs.hue, app.cs.sat, app.cs.val, ht, app.harmony_req)
+	app.harmony_req = app.harmony_count
 }
 
-// ── Palette helpers ──
-
-palette_add :: proc(palette: []rl.Color, count: ^int, color: rl.Color) -> bool {
-	if count^ >= len(palette) do return false
-	for i in 0 ..< count^ {
-		if palette[i].r == color.r && palette[i].g == color.g && palette[i].b == color.b {
-			return false
-		}
-	}
-	palette[count^] = color
-	count^ += 1
-	return true
+update_shades :: proc(app: ^AppState) {
+	app.shades, app.shade_count = generate_shades(app.cs.hue, app.cs.sat, app.shade_req, app.shade_v_min, app.shade_v_max)
 }
 
-palette_remove :: proc(palette: []rl.Color, count: ^int, index: int) -> bool {
-	if index < 0 || index >= count^ do return false
-	for j in index ..< count^ - 1 {
-		palette[j] = palette[j + 1]
+init_export_name :: proc(app: ^AppState) {
+	name := "palette"
+	for i in 0 ..< len(name) {
+		app.export_name_buf[i] = name[i]
 	}
-	count^ -= 1
-	return true
+	app.export_name_len = len(name)
 }
 
 // ── Main ──
@@ -132,338 +147,652 @@ main :: proc() {
 	defer rl.CloseWindow()
 	rl.SetTargetFPS(60)
 
-	cs := color_init()
+	app: AppState
+	app.cs = color_init()
+	app.hex_cursor = 6
+	app.palette_hover = -1
+	app.fg_slot = rl.Color{255, 255, 255, 255}
+	app.bg_slot = rl.Color{0, 0, 0, 255}
+	app.shade_req = 9
+	app.shade_v_min = 0.05
+	app.shade_v_max = 0.95
+	init_export_name(&app)
 
-	hex_cursor := 6
-	hex_focused := false
-	hex_blink: f32 = 0
-
-	drag_sv := false
-	drag_hue := false
-	drag_rgb: [3]bool
-	drag_hsv: [3]bool
-
-	copied_timer: f32 = 0
-
-	palette: [MAX_PALETTE]rl.Color
-	palette_count := 0
-	palette_hover := -1
-
-	sv_img := rl.GenImageColor(SV_SIZE, SV_SIZE, rl.WHITE)
-	defer rl.UnloadImage(sv_img)
-	rebuild_sv(&sv_img, cs.hue)
-	sv_tex := rl.LoadTextureFromImage(sv_img)
-	defer rl.UnloadTexture(sv_tex)
+	app.sv_img = rl.GenImageColor(SV_SIZE, SV_SIZE, rl.WHITE)
+	rebuild_sv(&app.sv_img, app.cs.hue, SV_SIZE)
+	app.sv_tex = rl.LoadTextureFromImage(app.sv_img)
 
 	hue_img := rl.GenImageColor(360, 1, rl.WHITE)
-	hue_pixels := cast([^]rl.Color)hue_img.data
-	for i in 0 ..< 360 {
-		hue_pixels[i] = rl.ColorFromHSV(f32(i), 1, 1)
-	}
-	hue_tex := rl.LoadTextureFromImage(hue_img)
+	hp := cast([^]rl.Color)hue_img.data
+	for i in 0 ..< 360 do hp[i] = rl.ColorFromHSV(f32(i), 1, 1)
+	app.hue_tex = rl.LoadTextureFromImage(hue_img)
 	rl.UnloadImage(hue_img)
-	defer rl.UnloadTexture(hue_tex)
 
-	palette_count = load_palette(palette[:], PALETTE_FILE)
+	app.wheel_img = rl.GenImageColor(PICKER_SIZE, PICKER_SIZE, rl.BLANK)
+	rebuild_wheel(&app.wheel_img, app.cs.val, PICKER_SIZE)
+	app.wheel_tex = rl.LoadTextureFromImage(app.wheel_img)
 
-	SLIDER_BASE_Y :: SV_Y + PREVIEW_H + 68
-	SLIDER_SPACING :: 32
-	HSV_SLIDER_Y :: SLIDER_BASE_Y + 3 * SLIDER_SPACING + 18
+	app.palette_count = load_palette(app.palette[:], PALETTE_FILE)
+	update_harmony(&app)
+	update_shades(&app)
+
+	defer {
+		rl.UnloadImage(app.sv_img)
+		rl.UnloadTexture(app.sv_tex)
+		rl.UnloadTexture(app.hue_tex)
+		rl.UnloadImage(app.wheel_img)
+		rl.UnloadTexture(app.wheel_tex)
+		if app.eyedropper_active {
+			rl.UnloadImage(app.eyedropper_img)
+			rl.UnloadTexture(app.eyedropper_tex)
+		}
+	}
 
 	for !rl.WindowShouldClose() {
 		defer free_all(context.temp_allocator)
 
 		dt := rl.GetFrameTime()
 		mouse := rl.GetMousePosition()
-		if copied_timer > 0 do copied_timer -= dt
+		if app.copied_timer > 0 do app.copied_timer -= dt
 
-		prev_hue := cs.hue
-		slider_w := f32(RIGHT_W - 50)
+		// ── Eyedropper mode ──
+		if app.eyedropper_active {
+			rl.BeginDrawing()
+			rl.DrawTexture(app.eyedropper_tex, 0, 0, rl.WHITE)
+			cx, cy := i32(mouse.x), i32(mouse.y)
+			rl.DrawCircleLines(cx, cy, 10, rl.WHITE)
+			rl.DrawCircleLines(cx, cy, 11, rl.BLACK)
+			rl.EndDrawing()
+
+			if rl.IsMouseButtonPressed(.LEFT) {
+				px := clamp(i32(mouse.x), 0, app.eyedropper_img.width - 1)
+				py := clamp(i32(mouse.y), 0, app.eyedropper_img.height - 1)
+				picked := rl.GetImageColor(app.eyedropper_img, px, py)
+				color_set_rgb(&app.cs, picked)
+				commit_color(&app)
+				rl.UnloadImage(app.eyedropper_img)
+				rl.UnloadTexture(app.eyedropper_tex)
+				app.eyedropper_active = false
+				update_harmony(&app)
+				update_shades(&app)
+				eyedropper_cleanup()
+			}
+			if rl.IsKeyPressed(.ESCAPE) {
+				rl.UnloadImage(app.eyedropper_img)
+				rl.UnloadTexture(app.eyedropper_tex)
+				app.eyedropper_active = false
+				eyedropper_cleanup()
+			}
+			continue
+		}
+
+		// ── File drop ──
+		if rl.IsFileDropped() {
+			files := rl.LoadDroppedFiles()
+			defer rl.UnloadDroppedFiles(files)
+			if files.count > 0 {
+				img := rl.LoadImage(files.paths[0])
+				if img.data != nil {
+					app.extracted, app.extracted_count = extract_palette_from_image(img)
+					rl.UnloadImage(img)
+				}
+			}
+		}
+
+		prev_hue := app.cs.hue
+		prev_val := app.cs.val
+		slider_w := f32(RIGHT_W - 80)
 		slider_x := f32(RIGHT_X + 24)
 
-		// ── SV picker input ──
-		sv_rect := rl.Rectangle{SV_X, SV_Y, SV_SIZE, SV_SIZE}
-		hue_rect := rl.Rectangle{SV_X, HUE_Y, SV_SIZE, HUE_BAR_H}
-
-		if rl.IsMouseButtonPressed(.LEFT) {
-			if rl.CheckCollisionPointRec(mouse, sv_rect) {
-				drag_sv = true
-				hex_focused = false
+		// ── Export panel input ──
+		if app.export_open {
+			if rl.IsKeyPressed(.ESCAPE) {
+				app.export_open = false
+				app.export_name_focused = false
+				app.export_fmt_open = false
 			}
-			if rl.CheckCollisionPointRec(mouse, hue_rect) {
-				drag_hue = true
-				hex_focused = false
+
+			panel_w: f32 = 400
+			panel_h: f32 = 220
+			panel_x := f32(WINDOW_W) / 2 - panel_w / 2
+			panel_y := f32(WINDOW_H) / 2 - panel_h / 2
+
+			name_field := rl.Rectangle{panel_x + 20, panel_y + 50, panel_w - 40, 30}
+			if rl.IsMouseButtonPressed(.LEFT) {
+				app.export_name_focused = rl.CheckCollisionPointRec(mouse, name_field)
 			}
-		}
-		if rl.IsMouseButtonReleased(.LEFT) {
-			drag_sv = false
-			drag_hue = false
-			drag_rgb = {}
-			drag_hsv = {}
-		}
 
-		if drag_sv {
-			new_s := clamp((mouse.x - SV_X) / SV_SIZE, 0, 1)
-			new_v := 1 - clamp((mouse.y - SV_Y) / SV_SIZE, 0, 1)
-			color_set_hsv(&cs, cs.hue, new_s, new_v)
-		}
-		if drag_hue {
-			new_h := clamp((mouse.x - SV_X) / SV_SIZE * 360, 0, 359.99)
-			color_set_hsv(&cs, new_h, cs.sat, cs.val)
-		}
-
-		// ── RGB slider input ──
-		for i in 0 ..< 3 {
-			sy := f32(SLIDER_BASE_Y) + f32(i) * SLIDER_SPACING
-			sr := rl.Rectangle{slider_x, sy, slider_w, 16}
-
-			if rl.IsMouseButtonPressed(.LEFT) && rl.CheckCollisionPointRec(mouse, sr) {
-				drag_rgb[i] = true
-				hex_focused = false
-			}
-			if drag_rgb[i] {
-				c := color_get(&cs)
-				nv := u8(clamp((mouse.x - sr.x) / sr.width * 255, 0, 255))
-				switch i {
-				case 0:
-					c.r = nv
-				case 1:
-					c.g = nv
-				case 2:
-					c.b = nv
-				}
-				color_set_rgb(&cs, c, preserve_hue = true)
-			}
-		}
-
-		// ── HSV slider input ──
-		for i in 0 ..< 3 {
-			sy := f32(HSV_SLIDER_Y) + f32(i) * SLIDER_SPACING
-			sr := rl.Rectangle{slider_x, sy, slider_w, 16}
-
-			if rl.IsMouseButtonPressed(.LEFT) && rl.CheckCollisionPointRec(mouse, sr) {
-				drag_hsv[i] = true
-				hex_focused = false
-			}
-			if drag_hsv[i] {
-				ratio := clamp((mouse.x - sr.x) / sr.width, 0, 1)
-				h, s, v := cs.hue, cs.sat, cs.val
-				switch i {
-				case 0:
-					h = ratio * 359.99
-				case 1:
-					s = ratio
-				case 2:
-					v = ratio
-				}
-				color_set_hsv(&cs, h, s, v)
-			}
-		}
-
-		// ── Hex input ──
-		hex_field := rl.Rectangle {
-			f32(RIGHT_X),
-			f32(SV_Y + PREVIEW_H + 16),
-			f32(RIGHT_W - 94),
-			32,
-		}
-		copy_btn := rl.Rectangle {
-			hex_field.x + hex_field.width + 10,
-			hex_field.y,
-			80,
-			32,
-		}
-
-		if rl.IsMouseButtonPressed(.LEFT) {
-			was_focused := hex_focused
-			hex_focused = rl.CheckCollisionPointRec(mouse, hex_field)
-			if hex_focused && !was_focused {
-				hex_cursor = cs.hex_len
-				hex_blink = 0
-			}
-			color := color_get(&cs)
-			if rl.CheckCollisionPointRec(mouse, copy_btn) {
-				rl.SetClipboardText(fmt.ctprintf("#%02X%02X%02X", color.r, color.g, color.b))
-				copied_timer = 1.5
-			}
-		}
-
-		if hex_focused {
-			hex_blink += dt
-
-			for ch := rl.GetCharPressed(); ch != 0; ch = rl.GetCharPressed() {
-				c := u8(ch)
-				if is_hex_char(c) && cs.hex_len < 6 {
-					for j := cs.hex_len; j > hex_cursor; j -= 1 {
-						cs.hex_buf[j] = cs.hex_buf[j - 1]
+			if app.export_name_focused {
+				for ch := rl.GetCharPressed(); ch != 0; ch = rl.GetCharPressed() {
+					c := u8(ch)
+					if app.export_name_len < 30 && c >= 32 && c < 127 {
+						app.export_name_buf[app.export_name_len] = c
+						app.export_name_len += 1
 					}
-					cs.hex_buf[hex_cursor] = upper_hex(c)
-					hex_cursor += 1
-					cs.hex_len += 1
-					hex_blink = 0
+				}
+				if rl.IsKeyPressed(.BACKSPACE) && app.export_name_len > 0 {
+					app.export_name_len -= 1
 				}
 			}
 
-			if rl.IsKeyPressed(.BACKSPACE) && hex_cursor > 0 {
-				hex_cursor -= 1
-				for j in hex_cursor ..< cs.hex_len - 1 {
-					cs.hex_buf[j] = cs.hex_buf[j + 1]
+			format_rect := rl.Rectangle{panel_x + 20, panel_y + 96, panel_w - 40, 28}
+			// Format dropdown handled in drawing section
+
+			save_rect := rl.Rectangle{panel_x + 20, panel_y + 140, 110, 30}
+			copy_rect := rl.Rectangle{panel_x + 140, panel_y + 140, 110, 30}
+			cancel_rect := rl.Rectangle{panel_x + panel_w - 90, panel_y + 140, 70, 30}
+
+			if rl.IsMouseButtonPressed(.LEFT) && app.palette_count > 0 {
+				colors := app.palette[:app.palette_count]
+				name := string(app.export_name_buf[:app.export_name_len])
+
+				if rl.CheckCollisionPointRec(mouse, save_rect) {
+				switch app.export_format {
+				case 0: export_ase(colors, string(fmt.ctprintf("%s.ase", name)))
+				case 1: export_gpl(colors, string(fmt.ctprintf("%s.gpl", name)))
+				case 5: export_png_strip(colors, string(fmt.ctprintf("%s.png", name)))
+					case:
+						rl.SetClipboardText(fmt.ctprintf("%s", export_for_format(colors, app.export_format)))
+						app.copied_timer = 1.5
+					}
+					app.export_open = false
+					app.export_name_focused = false
 				}
-				cs.hex_len -= 1
-				hex_blink = 0
-			}
-			if rl.IsKeyPressed(.DELETE) && hex_cursor < cs.hex_len {
-				for j in hex_cursor ..< cs.hex_len - 1 {
-					cs.hex_buf[j] = cs.hex_buf[j + 1]
+				if rl.CheckCollisionPointRec(mouse, copy_rect) {
+					rl.SetClipboardText(fmt.ctprintf("%s", export_for_format(colors, app.export_format)))
+					app.copied_timer = 1.5
+					app.export_open = false
+					app.export_name_focused = false
 				}
-				cs.hex_len -= 1
-				hex_blink = 0
 			}
-			if rl.IsKeyPressed(.LEFT) && hex_cursor > 0 {
-				hex_cursor -= 1
-				hex_blink = 0
+			if rl.IsMouseButtonPressed(.LEFT) && rl.CheckCollisionPointRec(mouse, cancel_rect) {
+				app.export_open = false
+				app.export_name_focused = false
 			}
-			if rl.IsKeyPressed(.RIGHT) && hex_cursor < cs.hex_len {
-				hex_cursor += 1
-				hex_blink = 0
+		}
+
+		// ── Picker input ──
+		if !app.export_open {
+			if app.picker_mode == .Square {
+				sv_rect := rl.Rectangle{SV_X, SV_Y, SV_SIZE, SV_SIZE}
+				HUE_Y :: SV_Y + SV_SIZE + 14
+				hue_rect := rl.Rectangle{SV_X, HUE_Y, SV_SIZE, HUE_BAR_H}
+
+				if rl.IsMouseButtonPressed(.LEFT) {
+					if rl.CheckCollisionPointRec(mouse, sv_rect) {
+						app.drags.sv = true
+						app.hex_focused = false
+					}
+					if rl.CheckCollisionPointRec(mouse, hue_rect) {
+						app.drags.hue = true
+						app.hex_focused = false
+					}
+				}
+				if app.drags.sv {
+					ns := clamp((mouse.x - SV_X) / SV_SIZE, 0, 1)
+					nv := 1 - clamp((mouse.y - SV_Y) / SV_SIZE, 0, 1)
+					color_set_hsv(&app.cs, app.cs.hue, ns, nv)
+				}
+				if app.drags.hue {
+					nh := clamp((mouse.x - SV_X) / SV_SIZE * 360, 0, 359.99)
+					color_set_hsv(&app.cs, nh, app.cs.sat, app.cs.val)
+				}
+			} else {
+				center_x := f32(PICKER_X) + f32(PICKER_SIZE) / 2
+				center_y := f32(PICKER_Y) + f32(PICKER_SIZE) / 2
+				radius := f32(PICKER_SIZE) / 2
+
+				if rl.IsMouseButtonPressed(.LEFT) {
+					if _, _, ok := wheel_pick(mouse.x, mouse.y, center_x, center_y, radius); ok {
+						app.drags.wheel = true
+						app.hex_focused = false
+					}
+				}
+				if app.drags.wheel {
+					if h, s, ok := wheel_pick(mouse.x, mouse.y, center_x, center_y, radius); ok {
+						color_set_hsv(&app.cs, h, s, app.cs.val)
+					}
+				}
 			}
 
-			if rl.IsKeyPressed(.ENTER) {
-				if color_apply_hex(&cs) do hex_focused = false
+			if rl.IsMouseButtonReleased(.LEFT) {
+				app.drags = {}
 			}
 
-			color_apply_hex(&cs, preserve_hue = true)
+			// ── RGB slider input ──
+			for i in 0 ..< 3 {
+				sy := f32(SLIDER_BASE_Y) + f32(i) * SLIDER_SPACING
+				sr := rl.Rectangle{slider_x, sy, slider_w, 16}
+				if rl.IsMouseButtonPressed(.LEFT) && rl.CheckCollisionPointRec(mouse, sr) {
+					app.drags.rgb[i] = true
+					app.hex_focused = false
+				}
+				if app.drags.rgb[i] {
+					c := color_get(&app.cs)
+					nv := u8(clamp((mouse.x - sr.x) / sr.width * 255, 0, 255))
+					switch i {
+					case 0: c.r = nv
+					case 1: c.g = nv
+					case 2: c.b = nv
+					}
+					color_set_rgb(&app.cs, c, preserve_hue = true)
+				}
+			}
 
-			cmd :=
-				rl.IsKeyDown(.LEFT_SUPER) ||
-				rl.IsKeyDown(.RIGHT_SUPER) ||
-				rl.IsKeyDown(.LEFT_CONTROL) ||
-				rl.IsKeyDown(.RIGHT_CONTROL)
-			if cmd && rl.IsKeyPressed(.V) {
-				if clip := rl.GetClipboardText(); clip != nil {
-					ps := string(clip)
-					if len(ps) > 0 && ps[0] == '#' do ps = ps[1:]
-					if len(ps) == 6 && all_hex_str(ps) {
-						for j in 0 ..< 6 {
-							cs.hex_buf[j] = upper_hex(ps[j])
+			// ── HSV slider input ──
+			for i in 0 ..< 3 {
+				sy := f32(HSV_SLIDER_Y) + f32(i) * SLIDER_SPACING
+				sr := rl.Rectangle{slider_x, sy, slider_w, 16}
+				if rl.IsMouseButtonPressed(.LEFT) && rl.CheckCollisionPointRec(mouse, sr) {
+					app.drags.hsv[i] = true
+					app.hex_focused = false
+				}
+				if app.drags.hsv[i] {
+					ratio := clamp((mouse.x - sr.x) / sr.width, 0, 1)
+					h, s, v := app.cs.hue, app.cs.sat, app.cs.val
+					switch i {
+					case 0: h = ratio * 359.99
+					case 1: s = ratio
+					case 2: v = ratio
+					}
+					color_set_hsv(&app.cs, h, s, v)
+				}
+			}
+
+			// ── Hex input ──
+			hex_field := rl.Rectangle{f32(RIGHT_X), f32(HEX_FIELD_Y), f32(RIGHT_W - 90), 32}
+			copy_btn := rl.Rectangle{hex_field.x + hex_field.width + 8, hex_field.y, 78, 32}
+
+			if rl.IsMouseButtonPressed(.LEFT) {
+				was := app.hex_focused
+				app.hex_focused = rl.CheckCollisionPointRec(mouse, hex_field)
+				if app.hex_focused && !was {
+					app.hex_cursor = app.cs.hex_len
+					app.hex_blink = 0
+				}
+				if rl.CheckCollisionPointRec(mouse, copy_btn) {
+					c := color_get(&app.cs)
+					rl.SetClipboardText(fmt.ctprintf("#%02X%02X%02X", c.r, c.g, c.b))
+					app.copied_timer = 1.5
+					commit_color(&app)
+				}
+			}
+
+			if app.hex_focused {
+				app.hex_blink += dt
+				for ch := rl.GetCharPressed(); ch != 0; ch = rl.GetCharPressed() {
+					c := u8(ch)
+					if is_hex_char(c) && app.cs.hex_len < 6 {
+						for j := app.cs.hex_len; j > app.hex_cursor; j -= 1 {
+							app.cs.hex_buf[j] = app.cs.hex_buf[j - 1]
 						}
-						cs.hex_len = 6
-						hex_cursor = 6
-						color_apply_hex(&cs)
+						app.cs.hex_buf[app.hex_cursor] = upper_hex(c)
+						app.hex_cursor += 1
+						app.cs.hex_len += 1
+						app.hex_blink = 0
+					}
+				}
+				if rl.IsKeyPressed(.BACKSPACE) && app.hex_cursor > 0 {
+					app.hex_cursor -= 1
+					for j in app.hex_cursor ..< app.cs.hex_len - 1 {
+						app.cs.hex_buf[j] = app.cs.hex_buf[j + 1]
+					}
+					app.cs.hex_len -= 1
+					app.hex_blink = 0
+				}
+				if rl.IsKeyPressed(.DELETE) && app.hex_cursor < app.cs.hex_len {
+					for j in app.hex_cursor ..< app.cs.hex_len - 1 {
+						app.cs.hex_buf[j] = app.cs.hex_buf[j + 1]
+					}
+					app.cs.hex_len -= 1
+					app.hex_blink = 0
+				}
+				if rl.IsKeyPressed(.LEFT) && app.hex_cursor > 0 { app.hex_cursor -= 1; app.hex_blink = 0 }
+				if rl.IsKeyPressed(.RIGHT) && app.hex_cursor < app.cs.hex_len { app.hex_cursor += 1; app.hex_blink = 0 }
+
+				if rl.IsKeyPressed(.ENTER) {
+					if color_apply_hex(&app.cs) {
+						app.hex_focused = false
+						commit_color(&app)
+					}
+				}
+				color_apply_hex(&app.cs, preserve_hue = true)
+
+				if is_cmd_down() && rl.IsKeyPressed(.V) {
+					if clip := rl.GetClipboardText(); clip != nil {
+						ps := string(clip)
+						if len(ps) > 0 && ps[0] == '#' do ps = ps[1:]
+						if len(ps) == 6 && all_hex_str(ps) {
+							for j in 0 ..< 6 do app.cs.hex_buf[j] = upper_hex(ps[j])
+							app.cs.hex_len = 6
+							app.hex_cursor = 6
+							color_apply_hex(&app.cs)
+						}
 					}
 				}
 			}
-		}
 
-		// ── Global shortcuts ──
-		if !hex_focused {
-			cmd :=
-				rl.IsKeyDown(.LEFT_SUPER) ||
-				rl.IsKeyDown(.RIGHT_SUPER) ||
-				rl.IsKeyDown(.LEFT_CONTROL) ||
-				rl.IsKeyDown(.RIGHT_CONTROL)
-			if cmd && rl.IsKeyPressed(.C) {
-				color := color_get(&cs)
-				rl.SetClipboardText(fmt.ctprintf("#%02X%02X%02X", color.r, color.g, color.b))
-				copied_timer = 1.5
+			// ── FG/BG well clicks ──
+			fg_well := rl.Rectangle{f32(RIGHT_X + RIGHT_W - 76), f32(CONTRAST_INFO_Y - 2), 32, 24}
+			bg_well := rl.Rectangle{fg_well.x + 40, fg_well.y, 32, 24}
+			if rl.IsMouseButtonPressed(.LEFT) {
+				if rl.CheckCollisionPointRec(mouse, fg_well) {
+					app.active_slot = app.active_slot == .FG ? .None : .FG
+				}
+				if rl.CheckCollisionPointRec(mouse, bg_well) {
+					app.active_slot = app.active_slot == .BG ? .None : .BG
+				}
 			}
-			if cmd && rl.IsKeyPressed(.S) {
-				color := color_get(&cs)
-				if palette_add(palette[:], &palette_count, color) {
-					save_palette(palette[:palette_count], PALETTE_FILE)
+
+			// ── Global shortcuts ──
+			if !app.hex_focused && !app.export_name_focused {
+				if is_cmd_down() && rl.IsKeyPressed(.C) {
+					c := color_get(&app.cs)
+					rl.SetClipboardText(fmt.ctprintf("#%02X%02X%02X", c.r, c.g, c.b))
+					app.copied_timer = 1.5
+					commit_color(&app)
+				}
+				if is_cmd_down() && rl.IsKeyPressed(.S) || rl.IsKeyPressed(.SPACE) {
+					c := color_get(&app.cs)
+					if palette_add(app.palette[:], &app.palette_count, c) {
+						save_palette(app.palette[:app.palette_count], PALETTE_FILE)
+						commit_color(&app)
+					}
+				}
+			}
+
+			// ── Palette input ──
+		palette_base_y := f32(app.extracted_count > 0 ? 660 : 630)
+		palette_label_y := palette_base_y - 22
+
+		app.palette_hover = -1
+			for i in 0 ..< app.palette_count {
+				if rl.CheckCollisionPointRec(mouse, swatch_rect(i, palette_base_y, COLS_PER_ROW)) {
+					app.palette_hover = i
+					break
+				}
+			}
+
+			add_btn := swatch_rect(app.palette_count, palette_base_y, COLS_PER_ROW)
+			add_btn_hover := app.palette_count < MAX_PALETTE && rl.CheckCollisionPointRec(mouse, add_btn)
+
+			if rl.IsMouseButtonPressed(.LEFT) {
+				if add_btn_hover {
+					c := color_get(&app.cs)
+					if palette_add(app.palette[:], &app.palette_count, c) {
+						save_palette(app.palette[:app.palette_count], PALETTE_FILE)
+						commit_color(&app)
+					}
+					app.hex_focused = false
+				} else if app.palette_hover >= 0 {
+					color_set_rgb(&app.cs, app.palette[app.palette_hover])
+					app.hex_focused = false
+				}
+			}
+			if rl.IsMouseButtonPressed(.RIGHT) && app.palette_hover >= 0 {
+				if palette_remove(app.palette[:], &app.palette_count, app.palette_hover) {
+					save_palette(app.palette[:app.palette_count], PALETTE_FILE)
 				}
 			}
 		}
 
-		// ── Palette input ──
-		palette_hover = -1
-		for i in 0 ..< palette_count {
-			if rl.CheckCollisionPointRec(mouse, swatch_rect(i)) {
-				palette_hover = i
-				break
+		// ── Texture rebuilds ──
+		if app.cs.hue != prev_hue {
+			rebuild_sv(&app.sv_img, app.cs.hue, SV_SIZE)
+			rl.UpdateTexture(app.sv_tex, app.sv_img.data)
+			update_harmony(&app)
+			update_shades(&app)
+		}
+		if app.cs.val != prev_val || app.cs.hue != prev_hue {
+			rebuild_wheel(&app.wheel_img, app.cs.val, PICKER_SIZE)
+			rl.UpdateTexture(app.wheel_tex, app.wheel_img.data)
+			if app.cs.val != prev_val {
+				update_harmony(&app)
+				update_shades(&app)
 			}
 		}
 
-		add_btn := swatch_rect(palette_count)
-		add_btn_hover := palette_count < MAX_PALETTE && rl.CheckCollisionPointRec(mouse, add_btn)
+		color := color_get(&app.cs)
 
-		if rl.IsMouseButtonPressed(.LEFT) {
-			if add_btn_hover {
-				color := color_get(&cs)
-				if palette_add(palette[:], &palette_count, color) {
-					save_palette(palette[:palette_count], PALETTE_FILE)
-				}
-				hex_focused = false
-			} else if palette_hover >= 0 {
-				color_set_rgb(&cs, palette[palette_hover])
-				hex_focused = false
-			}
-		}
-		if rl.IsMouseButtonPressed(.RIGHT) && palette_hover >= 0 {
-			if palette_remove(palette[:], &palette_count, palette_hover) {
-				save_palette(palette[:palette_count], PALETTE_FILE)
-			}
+		// BG always tracks the current color unless FG is explicitly selected
+		if app.active_slot == .FG {
+			app.fg_slot = color
+		} else {
+			app.bg_slot = color
 		}
 
-		// ── Centralized SV rebuild ──
-		if cs.hue != prev_hue {
-			rebuild_sv(&sv_img, cs.hue)
-			rl.UpdateTexture(sv_tex, sv_img.data)
-		}
-
-		color := color_get(&cs)
-
-		// ── Drawing ──
+		// ══════════════════ DRAWING ══════════════════
 		rl.BeginDrawing()
 		rl.ClearBackground(BG)
 
+		// ── Header ──
 		rl.DrawText("Color Picker", MARGIN, 14, 22, TEXT_CLR)
 
-		// SV picker
-		rl.DrawRectangle(SV_X - 1, SV_Y - 1, SV_SIZE + 2, SV_SIZE + 2, OVERLAY)
-		rl.DrawTexture(sv_tex, SV_X, SV_Y, rl.WHITE)
+		// ── Left column: Picker ──
+		if app.picker_mode == .Square {
+			rl.DrawRectangle(SV_X - 1, SV_Y - 1, SV_SIZE + 2, SV_SIZE + 2, OVERLAY)
+			rl.DrawTexture(app.sv_tex, SV_X, SV_Y, rl.WHITE)
 
-		sv_sel_x := i32(f32(SV_X) + cs.sat * SV_SIZE)
-		sv_sel_y := i32(f32(SV_Y) + (1 - cs.val) * SV_SIZE)
-		rl.DrawCircle(sv_sel_x, sv_sel_y, 8, {0, 0, 0, 100})
-		rl.DrawCircleLines(sv_sel_x, sv_sel_y, 7, rl.WHITE)
-		rl.DrawCircleLines(sv_sel_x, sv_sel_y, 8, {0, 0, 0, 200})
+			sx := i32(f32(SV_X) + app.cs.sat * SV_SIZE)
+			sy := i32(f32(SV_Y) + (1 - app.cs.val) * SV_SIZE)
+			rl.DrawCircle(sx, sy, 8, {0, 0, 0, 100})
+			rl.DrawCircleLines(sx, sy, 7, rl.WHITE)
+			rl.DrawCircleLines(sx, sy, 8, {0, 0, 0, 200})
 
-		// Hue bar
-		rl.DrawRectangle(SV_X - 1, HUE_Y - 1, SV_SIZE + 2, HUE_BAR_H + 2, OVERLAY)
-		rl.DrawTexturePro(
-			hue_tex,
-			{0, 0, 360, 1},
-			{SV_X, HUE_Y, SV_SIZE, HUE_BAR_H},
-			{0, 0},
-			0,
-			rl.WHITE,
-		)
+			HUE_BAR_Y :: SV_Y + SV_SIZE + 14
+			rl.DrawRectangle(SV_X - 1, HUE_BAR_Y - 1, SV_SIZE + 2, HUE_BAR_H + 2, OVERLAY)
+			rl.DrawTexturePro(app.hue_tex, {0, 0, 360, 1}, {SV_X, HUE_BAR_Y, SV_SIZE, HUE_BAR_H}, {0, 0}, 0, rl.WHITE)
 
-		hue_sel_x := i32(f32(SV_X) + cs.hue / 360 * SV_SIZE)
-		rl.DrawRectangle(hue_sel_x - 2, HUE_Y - 2, 5, HUE_BAR_H + 4, rl.WHITE)
-		rl.DrawRectangleLines(hue_sel_x - 3, HUE_Y - 3, 7, HUE_BAR_H + 6, {0, 0, 0, 180})
+			hx := i32(f32(SV_X) + app.cs.hue / 360 * SV_SIZE)
+			rl.DrawRectangle(hx - 2, HUE_BAR_Y - 2, 5, HUE_BAR_H + 4, rl.WHITE)
+			rl.DrawRectangleLines(hx - 3, HUE_BAR_Y - 3, 7, HUE_BAR_H + 6, {0, 0, 0, 180})
+		} else {
+			rl.DrawTexture(app.wheel_tex, PICKER_X, PICKER_Y, rl.WHITE)
+			center_x := f32(PICKER_X) + f32(PICKER_SIZE) / 2
+			center_y := f32(PICKER_Y) + f32(PICKER_SIZE) / 2
+			radius := f32(PICKER_SIZE) / 2
 
-		// Color preview
-		preview_rect := rl.Rectangle{f32(RIGHT_X), f32(SV_Y), f32(RIGHT_W), PREVIEW_H}
-		border_rect := rl.Rectangle {
-			preview_rect.x - 1,
-			preview_rect.y - 1,
-			preview_rect.width + 2,
-			preview_rect.height + 2,
+			offsets, off_count := harmony_hue_offsets(HarmonyType(app.harmony_type), app.harmony_req)
+			for i in 0 ..< off_count {
+				angle := (app.cs.hue + offsets[i]) * math.PI / 180.0
+				px := center_x + math.cos(angle) * app.cs.sat * radius
+				py := center_y + math.sin(angle) * app.cs.sat * radius
+				rl.DrawCircleLines(i32(px), i32(py), 9, {0, 0, 0, 200})
+				rl.DrawCircleLines(i32(px), i32(py), 8, rl.WHITE)
+				rl.DrawCircleLines(i32(px), i32(py), 7, {0, 0, 0, 200})
+				if i > 0 {
+					prev_angle := (app.cs.hue + offsets[i - 1]) * math.PI / 180.0
+					prev_x := center_x + math.cos(prev_angle) * app.cs.sat * radius
+					prev_y := center_y + math.sin(prev_angle) * app.cs.sat * radius
+					rl.DrawLine(i32(prev_x), i32(prev_y), i32(px), i32(py), {0, 0, 0, 160})
+					rl.DrawLine(i32(prev_x) + 1, i32(prev_y), i32(px) + 1, i32(py), {255, 255, 255, 60})
+				}
+			}
+			if off_count > 2 {
+				first_angle := (app.cs.hue + offsets[0]) * math.PI / 180.0
+				last_angle := (app.cs.hue + offsets[off_count - 1]) * math.PI / 180.0
+				fx := i32(center_x + math.cos(first_angle) * app.cs.sat * radius)
+				fy := i32(center_y + math.sin(first_angle) * app.cs.sat * radius)
+				lx := i32(center_x + math.cos(last_angle) * app.cs.sat * radius)
+				ly := i32(center_y + math.sin(last_angle) * app.cs.sat * radius)
+				rl.DrawLine(lx, ly, fx, fy, {0, 0, 0, 160})
+				rl.DrawLine(lx + 1, ly, fx + 1, fy, {255, 255, 255, 60})
+			}
+
+			sel_angle := app.cs.hue * math.PI / 180.0
+			sel_x := center_x + math.cos(sel_angle) * app.cs.sat * radius
+			sel_y := center_y + math.sin(sel_angle) * app.cs.sat * radius
+			rl.DrawCircle(i32(sel_x), i32(sel_y), 9, {0, 0, 0, 180})
+			rl.DrawCircleLines(i32(sel_x), i32(sel_y), 8, rl.WHITE)
+			rl.DrawCircleLines(i32(sel_x), i32(sel_y), 9, {0, 0, 0, 220})
 		}
-		rl.DrawRectangleRounded(border_rect, 0.1, 8, OVERLAY)
-		rl.DrawRectangleRounded(preview_rect, 0.1, 8, color)
 
-		// Hex field
-		hex_bg := hex_focused ? rl.Color{58, 58, 82, 255} : OVERLAY
+		// ── Controls below picker: toggle + eyedropper ──
+		CONTROLS_Y :: PICKER_Y + PICKER_SIZE + 12
+		toggle_rect := rl.Rectangle{f32(PICKER_X), f32(CONTROLS_Y), 140, 26}
+		mode_idx := draw_toggle(toggle_rect, {"Wheel", "Square"}, int(app.picker_mode), mouse)
+		app.picker_mode = PickerMode(mode_idx)
+
+		eye_btn := rl.Rectangle{toggle_rect.x + toggle_rect.width + 10, f32(CONTROLS_Y), 90, 26}
+		if eye_clicked, _ := draw_button(eye_btn, "Eyedropper", mouse, 12); eye_clicked {
+			if eyedropper_capture() {
+				app.eyedropper_img = rl.LoadImage(SCREENSHOT_PATH)
+				if app.eyedropper_img.data != nil {
+					app.eyedropper_tex = rl.LoadTextureFromImage(app.eyedropper_img)
+					app.eyedropper_active = true
+				}
+			}
+		}
+
+		// ── Harmony dropdown button + swatches ──
+		harmony_names_list: [8]cstring
+		for ht in HarmonyType {
+			harmony_names_list[int(ht)] = HARMONY_NAMES[ht]
+		}
+		dropdown_rect := rl.Rectangle{f32(PICKER_X), f32(HARMONY_SECTION_Y), 160, 28}
+		harmony_toggled_this_frame := false
+
+		// Handle button click toggle (once, before drawing)
+		if rl.IsMouseButtonPressed(.LEFT) && rl.CheckCollisionPointRec(mouse, dropdown_rect) {
+			app.harmony_open = !app.harmony_open
+			harmony_toggled_this_frame = true
+		}
+
+		// Draw the button (always)
+		btn_bg := app.harmony_open || rl.CheckCollisionPointRec(mouse, dropdown_rect) ? rl.Color{58, 58, 82, 255} : OVERLAY
+		rl.DrawRectangleRounded(dropdown_rect, 0.3, 6, btn_bg)
+		if app.harmony_type >= 0 && app.harmony_type < len(harmony_names_list) {
+			rl.DrawText(harmony_names_list[app.harmony_type], i32(dropdown_rect.x) + 10, i32(dropdown_rect.y) + 6, 14, TEXT_CLR)
+		}
+		arrow_x := dropdown_rect.x + dropdown_rect.width - 18
+		arrow_cy := dropdown_rect.y + dropdown_rect.height / 2
+		if app.harmony_open {
+			rl.DrawTriangle({arrow_x, arrow_cy + 3}, {arrow_x + 8, arrow_cy + 3}, {arrow_x + 4, arrow_cy - 3}, SUBTEXT)
+		} else {
+			rl.DrawTriangle({arrow_x, arrow_cy - 3}, {arrow_x + 8, arrow_cy - 3}, {arrow_x + 4, arrow_cy + 3}, SUBTEXT)
+		}
+
+		if !app.harmony_open {
+			harm_label_y := f32(HARMONY_SECTION_Y + 34)
+			rl.DrawText("Harmonies", PICKER_X, i32(harm_label_y), 12, DIM)
+
+			ht := HarmonyType(app.harmony_type)
+			if harmony_is_variable(ht) {
+				minus_h := rl.Rectangle{f32(PICKER_X + 70), harm_label_y - 2, 18, 16}
+				plus_h := rl.Rectangle{minus_h.x + 42, harm_label_y - 2, 18, 16}
+				if m_click, _ := draw_button(minus_h, "-", mouse, 12, disabled = app.harmony_count <= 2); m_click {
+					app.harmony_req -= 1
+					update_harmony(&app)
+				}
+				rl.DrawText(fmt.ctprintf("%d", app.harmony_count), i32(minus_h.x) + 22, i32(harm_label_y), 12, TEXT_CLR)
+				if p_click, _ := draw_button(plus_h, "+", mouse, 12, disabled = app.harmony_count >= MAX_HARMONY); p_click {
+					app.harmony_req += 1
+					update_harmony(&app)
+				}
+			}
+
+			harm_y := harm_label_y + 18
+			clicked := draw_color_swatch_row(app.harmony_colors[:app.harmony_count], f32(PICKER_X), harm_y, 28, 3, mouse)
+			if clicked >= 0 {
+				color_set_rgb(&app.cs, app.harmony_colors[clicked])
+				commit_color(&app)
+			}
+
+			shade_label_y := harm_y + 40
+			rl.DrawText("Shades", PICKER_X, i32(shade_label_y), 12, DIM)
+
+			// Count +/-
+			minus_s := rl.Rectangle{f32(PICKER_X + 50), shade_label_y - 2, 18, 16}
+			plus_s := rl.Rectangle{minus_s.x + 42, shade_label_y - 2, 18, 16}
+			if ms_click, _ := draw_button(minus_s, "-", mouse, 12, disabled = app.shade_count <= 3); ms_click {
+				app.shade_req -= 1
+				update_shades(&app)
+			}
+			rl.DrawText(fmt.ctprintf("%d", app.shade_count), i32(minus_s.x) + 22, i32(shade_label_y), 12, TEXT_CLR)
+			if ps_click, _ := draw_button(plus_s, "+", mouse, 12, disabled = app.shade_count >= MAX_SHADES); ps_click {
+				app.shade_req += 1
+				update_shades(&app)
+			}
+
+			// Range shift
+			dark_btn := rl.Rectangle{plus_s.x + 30, shade_label_y - 2, 36, 16}
+			light_btn := rl.Rectangle{dark_btn.x + 42, shade_label_y - 2, 36, 16}
+			if dk_click, _ := draw_button(dark_btn, "Dark", mouse, 10); dk_click {
+				app.shade_v_min = max(app.shade_v_min - 0.1, 0)
+				app.shade_v_max = max(app.shade_v_max - 0.1, app.shade_v_min + 0.2)
+				update_shades(&app)
+			}
+			if lt_click, _ := draw_button(light_btn, "Light", mouse, 10); lt_click {
+				app.shade_v_max = min(app.shade_v_max + 0.1, 1)
+				app.shade_v_min = min(app.shade_v_min + 0.1, app.shade_v_max - 0.2)
+				update_shades(&app)
+			}
+
+			shade_y := shade_label_y + 18
+			shade_clicked := draw_color_swatch_row(app.shades[:app.shade_count], f32(PICKER_X), shade_y, 28, 3, mouse)
+			if shade_clicked >= 0 {
+				color_set_rgb(&app.cs, app.shades[shade_clicked])
+				commit_color(&app)
+			}
+		}
+
+		// ── Right column: Preview (contrast) ──
+		preview_rect := rl.Rectangle{f32(RIGHT_X), f32(PREVIEW_Y), f32(RIGHT_W), PREVIEW_H}
+		border_rect := rl.Rectangle{preview_rect.x - 1, preview_rect.y - 1, preview_rect.width + 2, preview_rect.height + 2}
+		rl.DrawRectangleRounded(border_rect, 0.1, 8, OVERLAY)
+		rl.DrawRectangleRounded(preview_rect, 0.1, 8, app.bg_slot)
+
+		sample_text :: "Aa Sample"
+		stw := rl.MeasureText(sample_text, 28)
+		rl.DrawText(sample_text, i32(preview_rect.x) + (i32(preview_rect.width) - stw) / 2, i32(preview_rect.y) + 36, 28, app.fg_slot)
+
+		// ── Contrast info + FG/BG wells ──
+		ratio := contrast_ratio(app.fg_slot, app.bg_slot)
+		rating := wcag_rating(ratio)
+		summary: cstring
+		summary_clr: rl.Color
+		if rating.aaa_normal {
+			summary = "Excellent readability"
+			summary_clr = GREEN
+		} else if rating.aa_normal {
+			summary = "Readable"
+			summary_clr = YELLOW
+		} else if rating.aa_large {
+			summary = "Large text only"
+			summary_clr = YELLOW
+		} else {
+			summary = "Poor readability"
+			summary_clr = RED
+		}
+		ratio_text := fmt.ctprintf("Contrast: %.1f:1", ratio)
+		ratio_tw := rl.MeasureText(ratio_text, 14)
+		rl.DrawText(ratio_text, RIGHT_X, CONTRAST_INFO_Y + 4, 14, TEXT_CLR)
+		rl.DrawText(summary, RIGHT_X + ratio_tw + 12, CONTRAST_INFO_Y + 6, 12, summary_clr)
+
+		fg_well := rl.Rectangle{f32(RIGHT_X + RIGHT_W - 76), f32(CONTRAST_INFO_Y - 2), 32, 24}
+		bg_well := rl.Rectangle{fg_well.x + 40, fg_well.y, 32, 24}
+
+		fg_border := app.active_slot == .FG ? ACCENT : rl.Color{255, 255, 255, 40}
+		bg_border := app.active_slot == .BG ? ACCENT : rl.Color{255, 255, 255, 40}
+		rl.DrawRectangleRounded({fg_well.x - 2, fg_well.y - 2, fg_well.width + 4, fg_well.height + 4}, 0.2, 4, fg_border)
+		rl.DrawRectangleRounded(fg_well, 0.2, 4, app.fg_slot)
+		rl.DrawRectangleRounded({bg_well.x - 2, bg_well.y - 2, bg_well.width + 4, bg_well.height + 4}, 0.2, 4, bg_border)
+		rl.DrawRectangleRounded(bg_well, 0.2, 4, app.bg_slot)
+		fg_lbl_clr := app.active_slot == .FG ? ACCENT : SUBTEXT
+		bg_lbl_clr := app.active_slot == .BG ? ACCENT : SUBTEXT
+		rl.DrawText("FG", i32(fg_well.x) + 8, i32(fg_well.y + fg_well.height) + 3, 10, fg_lbl_clr)
+		rl.DrawText("BG", i32(bg_well.x) + 8, i32(bg_well.y + bg_well.height) + 3, 10, bg_lbl_clr)
+
+		// ── Hex field ──
+		hex_field := rl.Rectangle{f32(RIGHT_X), f32(HEX_FIELD_Y), f32(RIGHT_W - 90), 32}
+		copy_btn := rl.Rectangle{hex_field.x + hex_field.width + 8, hex_field.y, 78, 32}
+
+		hex_bg := app.hex_focused ? rl.Color{58, 58, 82, 255} : OVERLAY
 		rl.DrawRectangleRounded(hex_field, 0.3, 6, hex_bg)
-		if hex_focused {
+		if app.hex_focused {
 			rl.DrawRectangleRounded(
 				{hex_field.x - 1, hex_field.y - 1, hex_field.width + 2, hex_field.height + 2},
-				0.3,
-				6,
-				ACCENT,
+				0.3, 6, ACCENT,
 			)
 			rl.DrawRectangleRounded(hex_field, 0.3, 6, hex_bg)
 		}
@@ -471,96 +800,66 @@ main :: proc() {
 		hash_x := i32(hex_field.x) + 10
 		hash_y := i32(hex_field.y) + 7
 		rl.DrawText("#", hash_x, hash_y, 18, SUBTEXT)
-
 		hex_text_x := hash_x + 14
-		for j in 0 ..< cs.hex_len {
-			ch_str: [2]u8 = {cs.hex_buf[j], 0}
+		for j in 0 ..< app.cs.hex_len {
+			ch_str: [2]u8 = {app.cs.hex_buf[j], 0}
 			rl.DrawText(cstring(&ch_str[0]), hex_text_x + i32(j) * 12, hash_y, 18, TEXT_CLR)
 		}
-		if hex_focused && int(hex_blink * 1.8) % 2 == 0 {
-			cx := hex_text_x + i32(hex_cursor) * 12
-			rl.DrawRectangle(cx, hash_y, 2, 18, ACCENT)
+		if app.hex_focused && int(app.hex_blink * 1.8) % 2 == 0 {
+			rl.DrawRectangle(hex_text_x + i32(app.hex_cursor) * 12, hash_y, 2, 18, ACCENT)
 		}
 
-		// Copy button
+		// Copy button with clipboard glyph
 		copy_hover := rl.CheckCollisionPointRec(mouse, copy_btn)
-		copy_bg := copy_hover ? ACCENT : OVERLAY
-		copy_text := copy_hover ? BG : TEXT_CLR
-		rl.DrawRectangleRounded(copy_btn, 0.3, 6, copy_bg)
-		if copied_timer > 0 {
-			rl.DrawText("Copied!", i32(copy_btn.x) + 8, i32(copy_btn.y) + 8, 16, copy_text)
+		copy_bg_clr := copy_hover ? ACCENT : OVERLAY
+		copy_text_clr := copy_hover ? BG : TEXT_CLR
+		rl.DrawRectangleRounded(copy_btn, 0.3, 6, copy_bg_clr)
+		cbx, cby := i32(copy_btn.x), i32(copy_btn.y)
+		rl.DrawRectangleLines(cbx + 8, cby + 7, 10, 13, copy_text_clr)
+		rl.DrawRectangleLines(cbx + 12, cby + 11, 10, 13, copy_text_clr)
+		if app.copied_timer > 0 {
+			rl.DrawText("Done", cbx + 26, cby + 8, 13, copy_text_clr)
 		} else {
-			rl.DrawText("Copy", i32(copy_btn.x) + 20, i32(copy_btn.y) + 8, 16, copy_text)
+			rl.DrawText("Copy", cbx + 26, cby + 8, 13, copy_text_clr)
 		}
 
-		// RGB sliders
+		// ── RGB sliders ──
 		rgb_labels := [3]cstring{"R", "G", "B"}
 		rgb_values := [3]u8{color.r, color.g, color.b}
-		left_colors := [3]rl.Color{
-			{0, color.g, color.b, 255},
-			{color.r, 0, color.b, 255},
-			{color.r, color.g, 0, 255},
-		}
-		right_colors := [3]rl.Color{
-			{255, color.g, color.b, 255},
-			{color.r, 255, color.b, 255},
-			{color.r, color.g, 255, 255},
-		}
+		left_colors := [3]rl.Color{{0, color.g, color.b, 255}, {color.r, 0, color.b, 255}, {color.r, color.g, 0, 255}}
+		right_colors := [3]rl.Color{{255, color.g, color.b, 255}, {color.r, 255, color.b, 255}, {color.r, color.g, 255, 255}}
 
 		for i in 0 ..< 3 {
 			sy := i32(SLIDER_BASE_Y) + i32(i) * SLIDER_SPACING
 			sx := i32(slider_x)
 			sw := i32(slider_w)
-
 			rl.DrawText(rgb_labels[i], RIGHT_X, sy + 1, 16, SUBTEXT)
-
 			rl.DrawRectangle(sx, sy + 2, sw, 12, OVERLAY)
 			rl.DrawRectangleGradientH(sx + 1, sy + 3, sw - 2, 10, left_colors[i], right_colors[i])
-
 			knob_x := f32(sx) + f32(rgb_values[i]) / 255 * f32(sw)
 			rl.DrawCircle(i32(knob_x), sy + 8, 9, rl.WHITE)
 			rl.DrawCircle(i32(knob_x), sy + 8, 7, color)
 			rl.DrawCircleLines(i32(knob_x), sy + 8, 9, {0, 0, 0, 80})
-
-			rl.DrawText(fmt.ctprintf("%d", rgb_values[i]), sx + sw + 8, sy + 1, 16, SUBTEXT)
+			rl.DrawText(fmt.ctprintf("%d", rgb_values[i]), sx + sw + 16, sy + 1, 16, SUBTEXT)
 		}
 
-		// HSV sliders
+		// ── HSV sliders ──
 		hsv_labels := [3]cstring{"H", "S", "V"}
-		hsv_ratios := [3]f32{cs.hue / 360, cs.sat, cs.val}
-
+		hsv_ratios := [3]f32{app.cs.hue / 360, app.cs.sat, app.cs.val}
 		for i in 0 ..< 3 {
 			sy := i32(HSV_SLIDER_Y) + i32(i) * SLIDER_SPACING
 			sx := i32(slider_x)
 			sw := i32(slider_w)
-
 			rl.DrawText(hsv_labels[i], RIGHT_X, sy + 1, 16, SUBTEXT)
-
 			rl.DrawRectangle(sx, sy + 2, sw, 12, OVERLAY)
 			switch i {
 			case 0:
-				rl.DrawTexturePro(
-					hue_tex,
-					{0, 0, 360, 1},
-					{f32(sx + 1), f32(sy + 3), f32(sw - 2), 10},
-					{0, 0},
-					0,
-					rl.WHITE,
-				)
+				rl.DrawTexturePro(app.hue_tex, {0, 0, 360, 1}, {f32(sx + 1), f32(sy + 3), f32(sw - 2), 10}, {0, 0}, 0, rl.WHITE)
 			case 1:
-				rl.DrawRectangleGradientH(
-					sx + 1, sy + 3, sw - 2, 10,
-					rl.ColorFromHSV(cs.hue, 0, cs.val),
-					rl.ColorFromHSV(cs.hue, 1, cs.val),
-				)
+				rl.DrawRectangleGradientH(sx + 1, sy + 3, sw - 2, 10, rl.ColorFromHSV(app.cs.hue, 0, app.cs.val), rl.ColorFromHSV(app.cs.hue, 1, app.cs.val))
 			case 2:
-				rl.DrawRectangleGradientH(
-					sx + 1, sy + 3, sw - 2, 10,
-					rl.ColorFromHSV(cs.hue, cs.sat, 0),
-					rl.ColorFromHSV(cs.hue, cs.sat, 1),
-				)
+				rl.DrawRectangleGradientH(sx + 1, sy + 3, sw - 2, 10, rl.ColorFromHSV(app.cs.hue, app.cs.sat, 0), rl.ColorFromHSV(app.cs.hue, app.cs.sat, 1))
 			}
-
 			knob_x := f32(sx) + hsv_ratios[i] * f32(sw)
 			rl.DrawCircle(i32(knob_x), sy + 8, 9, rl.WHITE)
 			rl.DrawCircle(i32(knob_x), sy + 8, 7, color)
@@ -568,64 +867,72 @@ main :: proc() {
 
 			hsv_text: cstring
 			switch i {
-			case 0:
-				hsv_text = fmt.ctprintf("%.0f\u00b0", cs.hue)
-			case 1:
-				hsv_text = fmt.ctprintf("%.0f%%", cs.sat * 100)
-			case 2:
-				hsv_text = fmt.ctprintf("%.0f%%", cs.val * 100)
+			case 0: hsv_text = fmt.ctprintf("%.0f\u00b0", app.cs.hue)
+			case 1: hsv_text = fmt.ctprintf("%.0f%%", app.cs.sat * 100)
+			case 2: hsv_text = fmt.ctprintf("%.0f%%", app.cs.val * 100)
 			}
-			rl.DrawText(hsv_text, sx + sw + 8, sy + 1, 16, SUBTEXT)
+			rl.DrawText(hsv_text, sx + sw + 16, sy + 1, 16, SUBTEXT)
 		}
 
-		hint_y := i32(HSV_SLIDER_Y) + 3 * SLIDER_SPACING + 6
-		rl.DrawText("\u2318+C copy  \u2318+V paste  \u2318+S save", RIGHT_X, hint_y, 12, DIM)
+		rl.DrawText("\u2318+C copy  \u2318+V paste  \u2318+S save", RIGHT_X, HINT_Y, 12, DIM)
+
+		// ── History (right column) ──
+		rl.DrawText("History", RIGHT_X, HISTORY_Y, 12, DIM)
+		if app.history_count > 0 {
+			for i in 0 ..< app.history_count {
+				c := history_get(app.history[:], app.history_count, app.history_head, i)
+				hx := f32(RIGHT_X) + f32(i) * 22
+				hr := rl.Rectangle{hx, f32(HISTORY_Y + 16), 18, 18}
+				hovering := rl.CheckCollisionPointRec(mouse, hr)
+				if hovering {
+					rl.DrawRectangleRounded({hr.x - 1, hr.y - 1, hr.width + 2, hr.height + 2}, 0.2, 4, ACCENT)
+				}
+				rl.DrawRectangleRounded(hr, 0.2, 4, c)
+				if hovering && rl.IsMouseButtonPressed(.LEFT) && !app.export_open {
+					color_set_rgb(&app.cs, c)
+					app.hex_focused = false
+				}
+			}
+		}
+
+		// ── Extracted colors ──
+		if app.extracted_count > 0 {
+			ext_y: f32 = 586
+			rl.DrawText("Extracted", MARGIN, i32(ext_y) - 14, 12, DIM)
+			ext_clicked := draw_color_swatch_row(app.extracted[:app.extracted_count], f32(MARGIN), ext_y, 26, 4, mouse)
+			if ext_clicked >= 0 && !app.export_open {
+				color_set_rgb(&app.cs, app.extracted[ext_clicked])
+				commit_color(&app)
+			}
+		}
 
 		// ── Palette ──
-		rl.DrawLine(MARGIN, PALETTE_LABEL_Y - 10, WINDOW_W - MARGIN, PALETTE_LABEL_Y - 10, OVERLAY)
-		rl.DrawText("Palette", MARGIN, PALETTE_LABEL_Y, 16, TEXT_CLR)
-		if palette_count == 0 {
-			rl.DrawText(
-				"click + or \u2318+S to save colors, right-click to remove",
-				MARGIN + 76,
-				PALETTE_LABEL_Y + 3,
-				12,
-				DIM,
-			)
+		palette_base_y := f32(app.extracted_count > 0 ? 660 : 630)
+		palette_label_y := palette_base_y - 22
+
+		rl.DrawLine(MARGIN, i32(palette_label_y) - 8, WINDOW_W - MARGIN, i32(palette_label_y) - 8, OVERLAY)
+		rl.DrawText("Palette", MARGIN, i32(palette_label_y), 16, TEXT_CLR)
+		if app.palette_count == 0 {
+			rl.DrawText("click + or \u2318+S to save colors", MARGIN + 76, i32(palette_label_y) + 3, 12, DIM)
 		}
 
-		for i in 0 ..< palette_count {
-			sr := swatch_rect(i)
-			c := palette[i]
-
-			if i == palette_hover {
-				rl.DrawRectangleRounded(
-					{sr.x - 2, sr.y - 2, sr.width + 4, sr.height + 4},
-					0.15,
-					4,
-					ACCENT,
-				)
+		for i in 0 ..< app.palette_count {
+			sr := swatch_rect(i, palette_base_y, COLS_PER_ROW)
+			c := app.palette[i]
+			if i == app.palette_hover {
+				rl.DrawRectangleRounded({sr.x - 2, sr.y - 2, sr.width + 4, sr.height + 4}, 0.15, 4, ACCENT)
 			} else {
-				rl.DrawRectangleRounded(
-					{sr.x - 1, sr.y - 1, sr.width + 2, sr.height + 2},
-					0.15,
-					4,
-					{255, 255, 255, 15},
-				)
+				rl.DrawRectangleRounded({sr.x - 1, sr.y - 1, sr.width + 2, sr.height + 2}, 0.15, 4, {255, 255, 255, 15})
 			}
 			rl.DrawRectangleRounded(sr, 0.15, 4, c)
 		}
 
-		if palette_count < MAX_PALETTE {
-			rl.DrawRectangleRounded(
-				{add_btn.x - 1, add_btn.y - 1, add_btn.width + 2, add_btn.height + 2},
-				0.15,
-				4,
-				add_btn_hover ? ACCENT : rl.Color{255, 255, 255, 15},
-			)
+		add_btn := swatch_rect(app.palette_count, palette_base_y, COLS_PER_ROW)
+		add_btn_hover := app.palette_count < MAX_PALETTE && rl.CheckCollisionPointRec(mouse, add_btn)
+		if app.palette_count < MAX_PALETTE {
+			rl.DrawRectangleRounded({add_btn.x - 1, add_btn.y - 1, add_btn.width + 2, add_btn.height + 2}, 0.15, 4, add_btn_hover ? ACCENT : rl.Color{255, 255, 255, 15})
 			rl.DrawRectangleRounded(add_btn, 0.15, 4, color)
 			rl.DrawRectangleRounded(add_btn, 0.15, 4, {0, 0, 0, 90})
-
 			pcx := i32(add_btn.x) + SWATCH_SZ / 2
 			pcy := i32(add_btn.y) + SWATCH_SZ / 2
 			plus_clr := add_btn_hover ? rl.Color{255, 255, 255, 255} : rl.Color{255, 255, 255, 180}
@@ -633,137 +940,158 @@ main :: proc() {
 			rl.DrawRectangle(pcx - 1, pcy - 7, 3, 14, plus_clr)
 		}
 
-		if palette_hover >= 0 {
-			pc := palette[palette_hover]
-			tip := fmt.ctprintf("#%02X%02X%02X", pc.r, pc.g, pc.b)
-			sr := swatch_rect(palette_hover)
+		if app.palette_hover >= 0 {
+			pc := app.palette[app.palette_hover]
+			tip := format_hex_cstr(pc)
+			sr := swatch_rect(app.palette_hover, palette_base_y, COLS_PER_ROW)
 			tx := i32(sr.x)
 			ty := i32(sr.y) - 20
 			tw := rl.MeasureText(tip, 12)
-			rl.DrawRectangleRounded(
-				{f32(tx - 4), f32(ty - 2), f32(tw + 8), 18},
-				0.3,
-				4,
-				SURFACE,
-			)
+			rl.DrawRectangleRounded({f32(tx - 4), f32(ty - 2), f32(tw + 8), 18}, 0.3, 4, SURFACE)
 			rl.DrawText(tip, tx, ty, 12, TEXT_CLR)
+		}
+
+		// ── Export button ──
+		export_btn_rect := rl.Rectangle{f32(MARGIN), EXPORT_BTN_Y, 120, 28}
+		if exp_click, _ := draw_button(export_btn_rect, "Export", mouse, 14); exp_click {
+			app.export_open = !app.export_open
+		}
+		rl.DrawText("Drop an image to extract colors", MARGIN + 136, EXPORT_BTN_Y + 7, 12, DIM)
+
+		// ── Export panel overlay ──
+		if app.export_open {
+			rl.DrawRectangle(0, 0, WINDOW_W, WINDOW_H, {0, 0, 0, 120})
+
+			panel_w: f32 = 400
+			panel_h: f32 = 220
+			panel_x := f32(WINDOW_W) / 2 - panel_w / 2
+			panel_y := f32(WINDOW_H) / 2 - panel_h / 2
+
+			// Click outside panel to close
+			panel_rect := rl.Rectangle{panel_x, panel_y, panel_w, panel_h}
+			if rl.IsMouseButtonPressed(.LEFT) && !rl.CheckCollisionPointRec(mouse, panel_rect) && !app.export_fmt_open {
+				app.export_open = false
+				app.export_name_focused = false
+			}
+
+			rl.DrawRectangleRounded({panel_x - 1, panel_y - 1, panel_w + 2, panel_h + 2}, 0.05, 8, OVERLAY)
+			rl.DrawRectangleRounded({panel_x, panel_y, panel_w, panel_h}, 0.05, 8, BG)
+
+			rl.DrawText("Export Palette", i32(panel_x) + 20, i32(panel_y) + 16, 18, TEXT_CLR)
+
+			rl.DrawText("Filename:", i32(panel_x) + 20, i32(panel_y) + 42, 12, SUBTEXT)
+			name_field := rl.Rectangle{panel_x + 20, panel_y + 56, panel_w - 40, 28}
+			name_bg := app.export_name_focused ? rl.Color{58, 58, 82, 255} : OVERLAY
+			rl.DrawRectangleRounded(name_field, 0.3, 4, name_bg)
+			if app.export_name_focused {
+				rl.DrawRectangleRounded({name_field.x - 1, name_field.y - 1, name_field.width + 2, name_field.height + 2}, 0.3, 4, ACCENT)
+				rl.DrawRectangleRounded(name_field, 0.3, 4, name_bg)
+			}
+			name_str: [33]u8
+			for i in 0 ..< app.export_name_len do name_str[i] = app.export_name_buf[i]
+			name_str[app.export_name_len] = 0
+			rl.DrawText(cstring(&name_str[0]), i32(name_field.x) + 8, i32(name_field.y) + 6, 14, TEXT_CLR)
+
+			rl.DrawText("Format:", i32(panel_x) + 20, i32(panel_y) + 92, 12, SUBTEXT)
+			format_rect := rl.Rectangle{panel_x + 20, panel_y + 106, panel_w - 40, 28}
+			fmts := EXPORT_FORMATS
+
+			// Draw format button
+			fmt_hover := rl.CheckCollisionPointRec(mouse, format_rect)
+			fmt_bg := app.export_fmt_open || fmt_hover ? rl.Color{58, 58, 82, 255} : OVERLAY
+			rl.DrawRectangleRounded(format_rect, 0.3, 4, fmt_bg)
+			rl.DrawText(fmts[app.export_format], i32(format_rect.x) + 8, i32(format_rect.y) + 6, 14, TEXT_CLR)
+			arrow_fx := format_rect.x + format_rect.width - 18
+			arrow_fcy := format_rect.y + format_rect.height / 2
+			if app.export_fmt_open {
+				rl.DrawTriangle({arrow_fx, arrow_fcy + 3}, {arrow_fx + 8, arrow_fcy + 3}, {arrow_fx + 4, arrow_fcy - 3}, SUBTEXT)
+			} else {
+				rl.DrawTriangle({arrow_fx, arrow_fcy - 3}, {arrow_fx + 8, arrow_fcy - 3}, {arrow_fx + 4, arrow_fcy + 3}, SUBTEXT)
+			}
+
+			// Format dropdown toggle
+			if rl.IsMouseButtonPressed(.LEFT) && fmt_hover && !app.export_fmt_open {
+				app.export_fmt_open = true
+			} else if rl.IsMouseButtonPressed(.LEFT) && fmt_hover && app.export_fmt_open {
+				app.export_fmt_open = false
+			}
+
+			save_rect := rl.Rectangle{panel_x + 20, panel_y + 150, 110, 30}
+			copy_export := rl.Rectangle{panel_x + 140, panel_y + 150, 110, 30}
+			cancel_rect := rl.Rectangle{panel_x + panel_w - 90, panel_y + 150, 70, 30}
+
+			draw_button(save_rect, "Save File", mouse, 13)
+			draw_button(copy_export, "Copy Text", mouse, 13)
+			draw_button(cancel_rect, "Cancel", mouse, 13)
+
+			if app.palette_count == 0 {
+				rl.DrawText("Add colors to palette first", i32(panel_x) + 20, i32(panel_y) + 192, 12, RED)
+			}
+
+			// Format dropdown items drawn last for z-order
+			if app.export_fmt_open {
+				item_h: f32 = 26
+				menu_h := f32(len(fmts)) * item_h
+				for i in 0 ..< len(fmts) {
+					ir := rl.Rectangle{format_rect.x, format_rect.y + format_rect.height + f32(i) * item_h, format_rect.width, item_h}
+					ih := rl.CheckCollisionPointRec(mouse, ir)
+					rl.DrawRectangleRounded(ir, 0.1, 4, ih ? ACCENT : SURFACE)
+					rl.DrawText(fmts[i], i32(ir.x) + 8, i32(ir.y) + 5, 14, ih ? BG : TEXT_CLR)
+					if ih && rl.IsMouseButtonPressed(.LEFT) {
+						app.export_format = i
+						app.export_fmt_open = false
+					}
+				}
+				// Close on click outside the dropdown + button area
+				if rl.IsMouseButtonPressed(.LEFT) {
+					full := rl.Rectangle{format_rect.x, format_rect.y, format_rect.width, format_rect.height + menu_h}
+					if !rl.CheckCollisionPointRec(mouse, full) {
+						app.export_fmt_open = false
+					}
+				}
+			}
+		}
+
+		// ── Harmony dropdown menu (drawn last for z-order) ──
+		if app.harmony_open {
+			item_h: f32 = 28
+			menu_rect := rl.Rectangle{dropdown_rect.x, dropdown_rect.y + dropdown_rect.height, dropdown_rect.width, f32(len(harmony_names_list)) * item_h}
+
+			for i in 0 ..< len(harmony_names_list) {
+				ir := rl.Rectangle{menu_rect.x, menu_rect.y + f32(i) * item_h, menu_rect.width, item_h}
+				item_hover := rl.CheckCollisionPointRec(mouse, ir)
+				ibg := item_hover ? ACCENT : SURFACE
+				itxt := item_hover ? BG : TEXT_CLR
+				rl.DrawRectangleRounded(ir, 0.1, 4, ibg)
+				rl.DrawText(harmony_names_list[i], i32(ir.x) + 10, i32(ir.y) + 6, 14, itxt)
+
+				if item_hover && rl.IsMouseButtonPressed(.LEFT) && !harmony_toggled_this_frame {
+					app.harmony_type = i
+					app.harmony_open = false
+					update_harmony(&app)
+					update_shades(&app)
+				}
+			}
+
+			// Close on click outside (but not the frame we just opened)
+			if rl.IsMouseButtonPressed(.LEFT) && !harmony_toggled_this_frame {
+				full_area := rl.Rectangle{dropdown_rect.x, dropdown_rect.y, dropdown_rect.width, dropdown_rect.height + menu_rect.height}
+				if !rl.CheckCollisionPointRec(mouse, full_area) {
+					app.harmony_open = false
+				}
+			}
 		}
 
 		rl.EndDrawing()
 	}
 }
 
-// ── Rendering helpers ──
-
-rebuild_sv :: proc(img: ^rl.Image, hue: f32) {
-	pixels := cast([^]rl.Color)img.data
-	for y in 0 ..< SV_SIZE {
-		for x in 0 ..< SV_SIZE {
-			s := f32(x) / f32(SV_SIZE)
-			v := 1 - f32(y) / f32(SV_SIZE)
-			pixels[y * SV_SIZE + x] = rl.ColorFromHSV(hue, s, v)
-		}
+export_for_format :: proc(colors: []rl.Color, format: int) -> string {
+	switch format {
+	case 2: return export_css(colors)
+	case 3: return export_tailwind(colors)
+	case 4: return export_json(colors)
+	case 6: return palette_to_hex_array(colors)
+	case:   return palette_to_hex_array(colors)
 	}
-}
-
-swatch_rect :: proc(index: int) -> rl.Rectangle {
-	row := index / COLS_PER_ROW
-	col := index % COLS_PER_ROW
-	return {
-		f32(MARGIN) + f32(col) * f32(SWATCH_STRIDE),
-		f32(PALETTE_Y) + f32(row) * f32(SWATCH_STRIDE),
-		SWATCH_SZ,
-		SWATCH_SZ,
-	}
-}
-
-// ── Hex helpers ──
-
-sync_hex :: proc(buf: ^[6]u8, color: rl.Color) {
-	fmt.bprintf(buf[:], "%02X%02X%02X", color.r, color.g, color.b)
-}
-
-is_hex_char :: proc(c: u8) -> bool {
-	switch c {
-	case '0' ..= '9', 'a' ..= 'f', 'A' ..= 'F':
-		return true
-	case:
-		return false
-	}
-}
-
-upper_hex :: proc(c: u8) -> u8 {
-	if c >= 'a' && c <= 'f' do return c - 32
-	return c
-}
-
-all_hex_str :: proc(s: string) -> bool {
-	for c in s {
-		if !is_hex_char(u8(c)) do return false
-	}
-	return true
-}
-
-parse_hex :: proc(buf: []u8) -> (rl.Color, bool) {
-	if len(buf) != 6 do return {}, false
-
-	hex_val :: proc(c: u8) -> (u8, bool) {
-		switch c {
-		case '0' ..= '9':
-			return c - '0', true
-		case 'A' ..= 'F':
-			return c - 'A' + 10, true
-		case 'a' ..= 'f':
-			return c - 'a' + 10, true
-		case:
-			return 0, false
-		}
-	}
-
-	r1, ok1 := hex_val(buf[0])
-	r2, ok2 := hex_val(buf[1])
-	g1, ok3 := hex_val(buf[2])
-	g2, ok4 := hex_val(buf[3])
-	b1, ok5 := hex_val(buf[4])
-	b2, ok6 := hex_val(buf[5])
-	if !ok1 || !ok2 || !ok3 || !ok4 || !ok5 || !ok6 do return {}, false
-
-	return rl.Color{r1 * 16 + r2, g1 * 16 + g2, b1 * 16 + b2, 255}, true
-}
-
-// ── File I/O ──
-
-load_palette :: proc(palette: []rl.Color, path: string) -> int {
-	data, err := os.read_entire_file_from_path(path, context.allocator)
-	if err != nil do return 0
-	defer delete(data)
-
-	count := 0
-	i := 0
-	for i < len(data) && count < len(palette) {
-		for i < len(data) && (data[i] == '\n' || data[i] == '\r' || data[i] == ' ' || data[i] == '\t') {
-			i += 1
-		}
-		if i < len(data) && data[i] == '#' do i += 1
-		if i + 6 <= len(data) {
-			if c, parsed := parse_hex(data[i:i + 6]); parsed {
-				palette[count] = c
-				count += 1
-			}
-		}
-		for i < len(data) && data[i] != '\n' && data[i] != '\r' {
-			i += 1
-		}
-	}
-	return count
-}
-
-save_palette :: proc(colors: []rl.Color, path: string) {
-	buf: [MAX_PALETTE * 9]u8
-	offset := 0
-	for c in colors {
-		s := fmt.bprintf(buf[offset:], "#%02X%02X%02X\n", c.r, c.g, c.b)
-		offset += len(s)
-	}
-	_ = os.write_entire_file(path, buf[:offset])
 }
