@@ -22,6 +22,21 @@ palette_add :: proc(palette: []rl.Color, count: ^int, color: rl.Color) -> bool {
 	return true
 }
 
+palette_move :: proc(palette: []rl.Color, count: int, from, to: int) {
+	if from < 0 || from >= count || to < 0 || to >= count || from == to do return
+	c := palette[from]
+	if from < to {
+		for i in from ..< to {
+			palette[i] = palette[i + 1]
+		}
+	} else {
+		for i := from; i > to; i -= 1 {
+			palette[i] = palette[i - 1]
+		}
+	}
+	palette[to] = c
+}
+
 palette_remove :: proc(palette: []rl.Color, count: ^int, index: int) -> bool {
 	if index < 0 || index >= count^ do return false
 	for j in index ..< count^ - 1 {

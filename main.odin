@@ -100,6 +100,8 @@ AppState :: struct {
 	hex_blink:       f32,
 	drags:           DragState,
 	copied_timer:    f32,
+	palette_drag:      int,
+	palette_dragging:  bool,
 	eyedropper_active: bool,
 	eyedropper_img:    rl.Image,
 	eyedropper_tex:    rl.Texture2D,
@@ -151,6 +153,7 @@ main :: proc() {
 	app.cs = color_init()
 	app.hex_cursor = 6
 	app.palette_hover = -1
+	app.palette_drag = -1
 	app.fg_slot = rl.Color{255, 255, 255, 255}
 	app.bg_slot = rl.Color{0, 0, 0, 255}
 	app.shade_req = 9
@@ -525,10 +528,24 @@ main :: proc() {
 					}
 					app.hex_focused = false
 				} else if app.palette_hover >= 0 {
+					app.palette_drag = app.palette_hover
+					app.palette_dragging = true
+				}
+			}
+
+			// Drop: reorder or just select
+			if rl.IsMouseButtonReleased(.LEFT) && app.palette_dragging {
+				if app.palette_hover >= 0 && app.palette_hover != app.palette_drag {
+					palette_move(app.palette[:], app.palette_count, app.palette_drag, app.palette_hover)
+					save_palette(app.palette[:app.palette_count], PALETTE_FILE)
+				} else if app.palette_hover == app.palette_drag {
 					color_set_rgb(&app.cs, app.palette[app.palette_hover])
 					app.hex_focused = false
 				}
+				app.palette_dragging = false
+				app.palette_drag = -1
 			}
+
 			if rl.IsMouseButtonPressed(.RIGHT) && app.palette_hover >= 0 {
 				if palette_remove(app.palette[:], &app.palette_count, app.palette_hover) {
 					save_palette(app.palette[:app.palette_count], PALETTE_FILE)
@@ -912,19 +929,55 @@ main :: proc() {
 
 		rl.DrawLine(MARGIN, i32(palette_label_y) - 8, WINDOW_W - MARGIN, i32(palette_label_y) - 8, OVERLAY)
 		rl.DrawText("Palette", MARGIN, i32(palette_label_y), 16, TEXT_CLR)
-		if app.palette_count == 0 {
+
+		if app.palette_count > 0 {
+			clear_all_rect := rl.Rectangle{f32(MARGIN + 76), palette_label_y - 2, 64, 20}
+			if ca_click, _ := draw_button(clear_all_rect, "Clear All", mouse, 10); ca_click {
+				app.palette_count = 0
+				save_palette(app.palette[:0], PALETTE_FILE)
+			}
+		} else {
 			rl.DrawText("click + or \u2318+S to save colors", MARGIN + 76, i32(palette_label_y) + 3, 12, DIM)
 		}
 
 		for i in 0 ..< app.palette_count {
 			sr := swatch_rect(i, palette_base_y, COLS_PER_ROW)
 			c := app.palette[i]
-			if i == app.palette_hover {
+
+			is_drag_source := app.palette_dragging && i == app.palette_drag
+			is_drop_target := app.palette_dragging && i == app.palette_hover && i != app.palette_drag
+
+			if is_drop_target {
+				rl.DrawRectangleRounded({sr.x - 2, sr.y - 2, sr.width + 4, sr.height + 4}, 0.15, 4, ACCENT)
+			} else if i == app.palette_hover && !app.palette_dragging {
 				rl.DrawRectangleRounded({sr.x - 2, sr.y - 2, sr.width + 4, sr.height + 4}, 0.15, 4, ACCENT)
 			} else {
 				rl.DrawRectangleRounded({sr.x - 1, sr.y - 1, sr.width + 2, sr.height + 2}, 0.15, 4, {255, 255, 255, 15})
 			}
-			rl.DrawRectangleRounded(sr, 0.15, 4, c)
+
+			alpha: u8 = is_drag_source ? 100 : 255
+			rl.DrawRectangleRounded(sr, 0.15, 4, {c.r, c.g, c.b, alpha})
+
+			// "x" delete badge on hover (only when not dragging)
+			if i == app.palette_hover && !app.palette_dragging {
+				xr := rl.Rectangle{sr.x + sr.width - 12, sr.y - 4, 16, 16}
+				xr_hover := rl.CheckCollisionPointRec(mouse, xr)
+				rl.DrawRectangleRounded(xr, 0.3, 4, xr_hover ? RED : rl.Color{60, 60, 80, 230})
+				rl.DrawText("x", i32(xr.x) + 4, i32(xr.y) + 1, 12, rl.WHITE)
+				if xr_hover && rl.IsMouseButtonPressed(.LEFT) {
+					palette_remove(app.palette[:], &app.palette_count, i)
+					save_palette(app.palette[:app.palette_count], PALETTE_FILE)
+					app.palette_hover = -1
+				}
+			}
+		}
+
+		// Ghost swatch following cursor while dragging
+		if app.palette_dragging && app.palette_drag >= 0 && app.palette_drag < app.palette_count {
+			dc := app.palette[app.palette_drag]
+			gr := rl.Rectangle{mouse.x - SWATCH_SZ / 2, mouse.y - SWATCH_SZ / 2, SWATCH_SZ, SWATCH_SZ}
+			rl.DrawRectangleRounded(gr, 0.15, 4, {dc.r, dc.g, dc.b, 180})
+			rl.DrawRectangleRounded({gr.x - 1, gr.y - 1, gr.width + 2, gr.height + 2}, 0.15, 4, {255, 255, 255, 60})
 		}
 
 		add_btn := swatch_rect(app.palette_count, palette_base_y, COLS_PER_ROW)
