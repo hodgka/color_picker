@@ -1,0 +1,38 @@
+---
+description: Rules for the color math package — pure functions, no side effects
+globs: "color/*.odin"
+alwaysApply: false
+---
+
+# Color Package
+
+`package color` is the pure math layer. It must stay free of side effects.
+
+## Hard Rules
+
+- No `os`, `fmt.println`, or file IO imports — only `vendor:raylib` for color types, `core:math`, `core:fmt` for formatting
+- No Raylib drawing calls (`rl.Draw*`) — this package never touches the screen
+- No global mutable state — all state flows through `ColorState` or procedure arguments
+- Fallible procedures return `(result, Error_Enum)` with a domain-specific error enum — never panics (see `odin-conventions.mdc` for error handling patterns)
+
+## Domain Constants
+
+Define domain-specific maximums as compile-time constants in the relevant file:
+
+```
+MAX_HARMONY :: 6   // harmony.odin
+MAX_SHADES  :: 32  // shade.odin
+```
+
+## File Organization
+
+One concern per file, mirrored by a `test_*.odin` file:
+
+| File | Concern |
+|------|---------|
+| `color.odin` | `ColorState`, init, get, set |
+| `hex.odin` | Hex parsing, sync, validation |
+| `harmony.odin` | Harmony types and computation |
+| `shade.odin` | Shade generation |
+| `contrast.odin` | WCAG contrast ratios |
+| `colorblind.odin` | CVD simulation matrices |

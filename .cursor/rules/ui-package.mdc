@@ -1,0 +1,41 @@
+---
+description: Rules for the UI package — theme, layout, and reusable widgets
+globs: "ui/*.odin"
+alwaysApply: false
+---
+
+# UI Package
+
+`package ui` provides theme constants, layout constants, and reusable stateless widgets.
+
+## Theme (`theme.odin`)
+
+All colors are compile-time `rl.Color` constants (Catppuccin Mocha palette). When adding new theme colors, follow the existing pattern:
+
+```
+NAME :: rl.Color{r, g, b, 255}
+```
+
+Never hardcode color literals in widget or draw code — always reference a theme constant.
+
+## Layout (`layout.odin`)
+
+All layout values are compile-time `i32` constants derived from a small set of base values (`WINDOW_W`, `MARGIN`, `PICKER_SIZE`). Derived constants should reference their parents, not magic numbers.
+
+## Widgets (`widgets.odin`)
+
+Widgets are immediate-mode: they draw themselves AND return interaction results in the same call. Follow the pattern:
+
+```odin
+draw_button :: proc(rect: rl.Rectangle, label: cstring, mouse: rl.Vector2, ...) -> (clicked: bool, hovering: bool)
+```
+
+- Accept `mouse: rl.Vector2` — widgets check their own hover/click state
+- Accept `rl.Rectangle` for positioning — the caller decides layout
+- Return named values for interaction feedback
+- Use `rl.DrawRectangleRounded` with roundness `0.3` and segments `6` for consistent look
+- May import `"../color"` for color helpers only — never import `"../data"`
+
+## Wheel (`wheel.odin`)
+
+Image-generation procedures (`rebuild_sv`, `rebuild_wheel`, `wheel_pick`) operate on `^rl.Image` and are called when the hue, value, or picker size changes. They write pixels directly via pointer arithmetic.

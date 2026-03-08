@@ -1,0 +1,34 @@
+---
+description: Patterns for the root package — drawing, input handling, and main loop
+globs: "{draw,main,app_state}.odin"
+alwaysApply: false
+---
+
+# Root Package (draw, main, app_state)
+
+## AppState (`app_state.odin`)
+
+`AppState` is the single source of truth. All mutable application state lives here. Helper procedures in this file orchestrate cross-package calls (e.g., `commit_color` updates history and slots, `update_harmony` delegates to `color.compute_harmony`).
+
+When adding new features, add fields to `AppState` — never introduce module-level variables.
+
+## Main Loop (`main.odin`)
+
+The main loop follows a strict order each frame:
+
+1. `defer free_all(context.temp_allocator)` — first line in the loop
+2. Handle special modes (eyedropper) with early `continue`
+3. Handle input (file drops, export panel, picker, sliders, hex, keyboard shortcuts, palette)
+4. Rebuild textures if underlying values changed
+5. Update derived state (FG/BG slots)
+6. `BeginDrawing` / `EndDrawing` block with draw calls
+
+Never mix input handling into draw procedures and never draw outside the BeginDrawing/EndDrawing block.
+
+## Drawing (`draw.odin`)
+
+- Every draw procedure receives `app: ^AppState` and `mouse: rl.Vector2`
+- Draw procedures are named `draw_<section>`: `draw_header`, `draw_picker`, `draw_harmony_section`
+- Some draw procedures handle inline interaction (dropdowns, toggles) and return flags — this is acceptable for tightly coupled draw+interact widgets, but prefer delegating to `ui.draw_*` where possible
+- Use `ui.MARGIN`, `ui.RIGHT_X`, etc. for positioning — never hardcode pixel values in draw code
+- Use `ui.TEXT_CLR`, `ui.ACCENT`, etc. for colors — never hardcode color literals
