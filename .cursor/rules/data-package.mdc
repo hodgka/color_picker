@@ -1,0 +1,28 @@
+---
+description: Rules for the data package — persistence, export, and OS integration
+globs: "data/*.odin"
+alwaysApply: false
+---
+
+# Data Package
+
+`package data` handles persistence, export formats, and OS-level integration.
+
+## File Organization
+
+| File | Concern |
+|------|---------|
+| `palette.odin` | Load/save palette files, add/remove/reorder |
+| `history.odin` | Ring-buffer color history |
+| `export.odin` | Export to ASE, GPL, CSS, Tailwind, JSON, PNG, TXT |
+| `eyedropper.odin` | OS-level screen capture for color picking |
+| `image_extract.odin` | K-means palette extraction from images |
+
+## Conventions
+
+- Palette and history use fixed-size arrays owned by `AppState` — procedures take slices and count pointers: `proc(palette: []rl.Color, count: ^int, ...)`
+- Export procedures use stack buffers (`buf: [N]u8`) with manual offset tracking — no heap allocation
+- For text export, return `cstring` via `fmt.ctprintf` (temp-allocated). For file export, take a `path: string` parameter and call `os.write_entire_file`
+- Platform-specific code uses `when ODIN_OS == .Darwin` / `.Linux` conditional compilation, not runtime checks
+- Domain constants (`MAX_PALETTE`, `HISTORY_MAX`, `SWATCH_STRIDE`, `EXTRACT_COUNT`) live in the file that defines the related data structure
+- May import `"../color"` for color utilities — never import `"../ui"`

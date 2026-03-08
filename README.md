@@ -85,35 +85,61 @@ On macOS you can also launch from Spotlight: **Cmd+Space** and type "Color Picke
 ## Running Tests
 
 ```sh
-odin test .
+odin test color/
+odin test data/
 ```
 
 ## Project Structure
 
+The codebase is organized into three subpackages plus the root application package:
+
+```
+color_picker/
+├── color/          Pure color math (package color)
+├── ui/             Theme, layout, widgets (package ui)
+├── data/           Persistence, export, OS integration (package data)
+├── main.odin       Entry point and input handling
+├── draw.odin       All rendering
+└── app_state.odin  Application state and orchestration
+```
+
+### `color/` — Color math
+
 | File | Purpose |
 |---|---|
-| `main.odin` | Entry point, main loop, input handling, and UI drawing |
-| `app_state.odin` | Application state struct and top-level update helpers |
 | `color.odin` | Core color state (HSV/RGB conversion, getters/setters) |
-| `draw.odin` | All rendering: picker, sliders, swatches, panels |
-| `layout.odin` | Layout constants and geometry |
-| `ui.odin` | UI widgets (buttons, sliders, dropdowns, text input) |
+| `hex.odin` | Hex string parsing and formatting |
 | `harmony.odin` | Color harmony computation |
 | `shade.odin` | Shade strip generation |
 | `contrast.odin` | WCAG relative luminance and contrast ratio |
 | `colorblind.odin` | CVD simulation matrices and distinguishability checks |
+
+### `ui/` — User interface
+
+| File | Purpose |
+|---|---|
+| `theme.odin` | UI color theme constants |
+| `layout.odin` | Layout constants and geometry |
+| `widgets.odin` | UI widgets (buttons, toggles, dropdowns, text input) |
+| `wheel.odin` | HSV color wheel and SV square image generation |
+
+### `data/` — Data and persistence
+
+| File | Purpose |
+|---|---|
+| `history.odin` | Circular buffer color history |
+| `palette.odin` | Palette add/remove/reorder and file persistence |
+| `export.odin` | Palette export (ASE, GPL, CSS, Tailwind, JSON, PNG, TXT) |
 | `eyedropper.odin` | Screen capture for the eyedropper tool |
 | `image_extract.odin` | Median-cut palette extraction from images |
-| `hex.odin` | Hex string parsing and formatting |
-| `history.odin` | Circular buffer color history |
-| `palette.odin` | Palette load/save (JSON) |
-| `export.odin` | Palette export (ASE, GPL, CSS, Tailwind, JSON, PNG, TXT) |
-| `settings.odin` | Settings persistence (`~/.config/color_picker/`) |
-| `wheel.odin` | HSV color wheel image generation |
-| `theme.odin` | UI color theme constants |
-| `tooltip.odin` | Tooltip state and rendering |
-| `bundle.sh` | macOS `.app` bundle and `.dmg` creation |
-| `install.sh` | Local installation script |
+
+### Root — Application
+
+| File | Purpose |
+|---|---|
+| `main.odin` | Entry point, main loop, input handling |
+| `draw.odin` | All rendering: picker, sliders, swatches, panels |
+| `app_state.odin` | Application state struct and top-level update helpers |
 
 ## License
 

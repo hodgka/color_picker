@@ -1,0 +1,43 @@
+---
+description: Testing conventions for color and data packages
+globs: "**/test_*.odin"
+alwaysApply: false
+---
+
+# Testing
+
+## Structure
+
+- One test file per source file: `color.odin` -> `test_color.odin`, `palette.odin` -> `test_palette.odin`
+- Test files live in the same package directory as the code they test
+- Test procedures use the `@(test)` attribute and take `t: ^testing.T`
+
+## Naming
+
+Test procedure names follow `test_<subject>_<behavior>`:
+
+```odin
+test_color_init_defaults
+test_parse_hex_valid_lowercase
+test_palette_add_rejects_when_full
+test_contrast_ratio_black_on_white
+```
+
+## Assertions
+
+- `testing.expect_value(t, got, expected)` for equality checks
+- `testing.expect(t, condition)` for boolean conditions
+- Test both happy path and edge cases (invalid input, boundaries, empty collections)
+
+## What to Test
+
+- `color/` — round-trip conversions, boundary values, invalid hex, harmony counts, contrast ratios, CVD matrices
+- `data/` — history ring-buffer wraparound, palette add/remove at capacity, palette persistence round-trips
+- Do NOT test `ui/` or root package procedures — they depend on Raylib initialization
+
+## Running
+
+```
+odin test color/
+odin test data/
+```

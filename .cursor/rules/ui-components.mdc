@@ -1,0 +1,30 @@
+---
+description: Enforces update/draw separation for UI components
+globs: src/ui/*.odin
+alwaysApply: false
+---
+
+# UI Component Pattern
+
+Every interactive component in `ui/` must separate input handling from rendering into two procs:
+
+- `*_update` — reads Raylib input state, mutates component state or returns new values. Called during the **input phase** (before texture rebuilds and drawing).
+- `*_draw` — reads component state and calls Raylib draw functions. Called during the **draw phase** (inside `BeginDrawing`/`EndDrawing`). Never mutates app state.
+
+## Current components
+
+| File | Update | Draw |
+|------|--------|------|
+| `button.odin` | `button_update` | `button_draw` |
+| `dropdown.odin` | `dropdown_update` | `dropdown_draw` |
+| `slider.odin` | `color_slider_update` | `color_slider_draw` |
+| `stepper.odin` | `stepper_update` | `stepper_draw` |
+| `modal.odin` | `modal_update` | `modal_draw` |
+| `text_input.odin` | `text_input_update` + `text_input_handle_click` | `text_input_draw` |
+
+## Rules
+
+1. **No state mutation in `_draw` procs.** Draw procs receive values (not pointers) for state they display. They never write to `^AppState` or call procs with side effects.
+2. **No Raylib draw calls in `_update` procs.** Update procs only check input (`IsMouseButtonPressed`, `IsKeyPressed`, `GetCharPressed`, etc.) and return results or mutate component state via pointers.
+3. **Callers must respect the split.** In `input.odin` and `main.odin`, call `_update`. In `draw.odin`, call `_draw`. Never check `_update` return values inside a draw proc.
+4. **New components follow the same pattern.** If adding a component, create both `*_update` and `*_draw` procs in the same file.

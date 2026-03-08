@@ -1,0 +1,75 @@
+---
+description: Odin language conventions and idioms used in this project
+globs: "**/*.odin"
+alwaysApply: false
+---
+
+# Odin Conventions
+
+## Naming
+
+- `snake_case` for procedures and variables: `color_init`, `draw_header`, `prev_hue`
+- `PascalCase` for types (structs, enums): `ColorState`, `PickerMode`, `DragState`
+- `SCREAMING_SNAKE` for constants: `MAX_HARMONY`, `WINDOW_W`, `SWATCH_STRIDE`
+- Enum members use PascalCase: `PickerMode.Wheel`, `CvdType.Protanopia`
+
+## Procedures
+
+- Mutable state is always passed by pointer: `proc(app: ^AppState)`, `proc(cs: ^ColorState)`
+- Use named return values: `-> (colors: [MAX_HARMONY]rl.Color, count: int)`
+- Use optional parameters with defaults: `preserve_hue := false`, `disabled: bool = false`
+- Prefix private helpers with underscore: `_hex_list`
+- Use `do` for single-statement bodies: `if len(buf) != 6 do return {}, false`
+
+## Error Handling
+
+Never panic. Use Odin's error facilities to make failures explicit and distinguishable.
+
+- **Error enums** for procedures with multiple distinct failure modes. Define them next to the procedure they serve:
+
+```odin
+Palette_Error :: enum {
+    Full,
+    Duplicate,
+}
+
+palette_add :: proc(palette: []rl.Color, count: ^int, c: rl.Color) -> Palette_Error { ... }
+```
+
+- **`or_return`** to propagate errors up the call chain without manual ok-checking:
+
+```odin
+hex_val :: proc(c: u8) -> (u8, Hex_Error) { ... }
+
+r1 := hex_val(buf[0]) or_return
+r2 := hex_val(buf[1]) or_return
+```
+
+- **`or_else`** to supply a fallback at the call site:
+
+```odin
+count := load_palette(path) or_else 0
+```
+
+- **`bool` only for predicates** — pure questions with no failure semantics: `is_hex_char`, `has_selection`, `is_cmd_down`
+- **OS errors**: propagate them via `or_return` or handle and return a domain error — never silently discard
+
+## Imports
+
+- Raylib is always aliased: `import rl "vendor:raylib"`
+- Core libs: `"core:fmt"`, `"core:math"`, `"core:os"`, `"core:testing"`, `"core:slice"`
+- Sibling packages use relative paths: `"../color"`
+- Order: vendor, core, then project packages
+
+## Memory
+
+- Per-frame temp allocations freed with `defer free_all(context.temp_allocator)` at the top of the game loop
+- Use `fmt.ctprintf` / `fmt.tprintf` for temp-allocated formatted strings
+- Stack buffers for serialization: `buf: [MAX_PALETTE * 20 + 64]u8`
+- `defer` for resource cleanup (images, textures) immediately after creation
+
+## Style
+
+- Section headers use box-drawing: `// ── Section Name ──` or `// ══════════════ SECTION ══════════════`
+- No doc comments on procedures — the code should be self-documenting
+- Trailing commas in multi-line struct literals and procedure calls
