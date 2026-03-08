@@ -4,41 +4,6 @@ import rl "vendor:raylib"
 import "core:fmt"
 import "core:math"
 
-// ── Layout ──
-
-WINDOW_W :: 960
-WINDOW_H :: 780
-MARGIN   :: 24
-
-PICKER_SIZE :: 340
-PICKER_X    :: MARGIN
-PICKER_Y    :: 50
-LEFT_W      :: PICKER_SIZE
-
-RIGHT_X :: PICKER_X + LEFT_W + 28
-RIGHT_W :: WINDOW_W - RIGHT_X - MARGIN
-
-PREVIEW_H       :: 100
-PREVIEW_Y       :: PICKER_Y
-CONTRAST_INFO_Y :: PREVIEW_Y + PREVIEW_H + 8
-HEX_FIELD_Y     :: CONTRAST_INFO_Y + 48
-SLIDER_BASE_Y   :: HEX_FIELD_Y + 44
-SLIDER_SPACING  :: 30
-HSV_SLIDER_Y    :: SLIDER_BASE_Y + 3 * SLIDER_SPACING + 14
-HINT_Y          :: HSV_SLIDER_Y + 3 * SLIDER_SPACING + 8
-
-SV_SIZE   :: 280
-HUE_BAR_H :: 20
-SV_X      :: PICKER_X
-SV_Y      :: PICKER_Y
-
-HARMONY_SECTION_Y :: PICKER_Y + PICKER_SIZE + 46
-
-HISTORY_Y  :: HINT_Y + 24
-EXPORT_BTN_Y :: WINDOW_H - 44
-
-COLS_PER_ROW :: (WINDOW_W - 2 * MARGIN) / SWATCH_STRIDE
-
 // ── Picker mode ──
 
 PickerMode :: enum {
