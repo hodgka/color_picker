@@ -38,22 +38,34 @@ A native desktop color picker built with [Odin](https://odin-lang.org/) and [Ray
 
 ## Building
 
-Build the binary directly:
+Build the binary:
 
 ```sh
-odin build . -out:bin/color_picker
+./scripts/build.sh
 ```
 
-Or use the bundling script to create a macOS `.app` bundle and `.dmg`:
+Build an optimized release binary:
 
 ```sh
-./bundle.sh
+./scripts/build.sh --release
 ```
 
-The `ODIN` environment variable can point to your Odin compiler if it isn't at `~/odin/odin`:
+Create a macOS `.app` bundle and `.dmg`:
 
 ```sh
-ODIN=/usr/local/bin/odin ./bundle.sh
+./scripts/bundle.sh
+```
+
+Stamp a specific version into the bundle:
+
+```sh
+./scripts/bundle.sh --version 1.2.0
+```
+
+The `ODIN` environment variable can point to your Odin compiler if it isn't on `$PATH`:
+
+```sh
+ODIN=/usr/local/bin/odin ./scripts/build.sh
 ```
 
 ## Installing
@@ -85,9 +97,10 @@ On macOS you can also launch from Spotlight: **Cmd+Space** and type "Color Picke
 ## Running Tests
 
 ```sh
-odin test color/
-odin test data/
+./scripts/test.sh
 ```
+
+This runs the test suites for `src/color/`, `src/data/`, and `src/ui/layout/`.
 
 ## Project Structure
 
