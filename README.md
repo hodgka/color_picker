@@ -4,6 +4,17 @@ A native desktop color picker built with [Odin](https://odin-lang.org/) and [Ray
 
 ![Color Picker screenshot](color_picker_screenshot.png)
 
+## Table of Contents
+
+- [Features](#features)
+- [Requirements](#requirements)
+- [Building](#building)
+- [Installing](#installing)
+- [Running](#running)
+- [Running Tests](#running-tests)
+- [Project Structure](#project-structure)
+- [License](#license)
+
 ## Features
 
 - **Dual picker modes** — color wheel and saturation/value square
