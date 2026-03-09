@@ -49,37 +49,7 @@ Build an optimized release binary:
 ./scripts/build.sh --release
 ```
 
-<<<<<<< HEAD
-Create a macOS `.app` bundle and `.dmg`:
-
-```sh
-./scripts/bundle.sh
-```
-
-Stamp a specific version into the bundle:
-
-```sh
-./scripts/bundle.sh --version 1.2.0
-```
-
-The `ODIN` environment variable can point to your Odin compiler if it isn't on `$PATH`:
-
-```sh
-ODIN=/usr/local/bin/odin ./scripts/build.sh
-```
-
-## Installing
-
-After building, run the install script to symlink the CLI command and copy the app bundle to `/Applications`:
-=======
-<<<<<<< Updated upstream
-The `ODIN` environment variable can point to your Odin compiler if it isn't at `~/odin/odin`:
-
-```sh
-ODIN=/usr/local/bin/odin ./bundle.sh
-=======
 Build with an embedded version string:
->>>>>>> 602be6a (Add CI pipeline, production hardening, and test coverage)
 
 ```sh
 ./scripts/build.sh --release --version 1.2.3
@@ -95,7 +65,6 @@ The `ODIN` environment variable can point to your Odin compiler if it isn't on `
 
 ```sh
 ODIN=/usr/local/bin/odin ./scripts/build.sh
->>>>>>> Stashed changes
 ```
 
 ## Running
@@ -122,12 +91,6 @@ Enable verbose logging:
 ./scripts/test.sh
 ```
 
-<<<<<<< HEAD
-This runs the test suites for `src/color/`, `src/data/`, and `src/ui/layout/`.
-
-=======
-<<<<<<< Updated upstream
-=======
 This runs the test suites for `src/color/`, `src/data/`, and `src/ui/layout/`.
 
 ## Keyboard Shortcuts
@@ -143,8 +106,6 @@ This runs the test suites for `src/color/`, `src/data/`, and `src/ui/layout/`.
 | `Tab` / `Shift+Tab` | Cycle harmony type |
 | `Escape` | Cancel eyedropper / close modal |
 
->>>>>>> Stashed changes
->>>>>>> 602be6a (Add CI pipeline, production hardening, and test coverage)
 ## Project Structure
 
 The codebase is organized into three subpackages plus the root application package:
