@@ -54,6 +54,6 @@ color_slider_draw :: proc(
 	knob_x := track_rect.x + value * track_rect.width
 	rl.DrawCircle(i32(knob_x), sy + 8, 9, rl.WHITE)
 	rl.DrawCircle(i32(knob_x), sy + 8, 7, knob_color)
-	rl.DrawCircleLines(i32(knob_x), sy + 8, 9, {0, 0, 0, 80})
+	rl.DrawCircleLines(i32(knob_x), sy + 8, 9, KNOB_OUTLINE)
 	rl.DrawText(value_text, sx + sw + 16, sy + 1, 16, SUBTEXT)
 }

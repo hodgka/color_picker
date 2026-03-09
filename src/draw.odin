@@ -10,7 +10,7 @@ import "data"
 
 draw_header :: proc(rects: []layout.Rect) {
 	header, _ := layout.find(rects, .Header)
-	rl.DrawText("Color Picker", i32(header.x), i32(header.y), 22, ui.TEXT_CLR)
+	rl.DrawText(fmt.ctprintf("Color Picker %s", VERSION), i32(header.x), i32(header.y), 22, ui.TEXT_CLR)
 }
 
 draw_picker :: proc(app: ^AppState, mouse: rl.Vector2, rects: []layout.Rect) {
@@ -29,9 +29,9 @@ draw_picker :: proc(app: ^AppState, mouse: rl.Vector2, rects: []layout.Rect) {
 
 		sx := i32(picker.x + app.cs.sat * f32(sv_size))
 		sy := i32(picker.y + (1 - app.cs.val) * f32(sv_size))
-		rl.DrawCircle(sx, sy, 8, {0, 0, 0, 100})
+		rl.DrawCircle(sx, sy, 8, ui.SHADOW_LIGHT)
 		rl.DrawCircleLines(sx, sy, 7, rl.WHITE)
-		rl.DrawCircleLines(sx, sy, 8, {0, 0, 0, 200})
+		rl.DrawCircleLines(sx, sy, 8, ui.SHADOW_DARK)
 
 		hue_bar_y := py + sv_size + 14
 		rl.DrawRectangle(px - 1, hue_bar_y - 1, sv_size + 2, HUE_BAR_H + 2, ui.OVERLAY)
@@ -39,7 +39,7 @@ draw_picker :: proc(app: ^AppState, mouse: rl.Vector2, rects: []layout.Rect) {
 
 		hx := i32(picker.x + app.cs.hue / 360 * f32(sv_size))
 		rl.DrawRectangle(hx - 2, hue_bar_y - 2, 5, HUE_BAR_H + 4, rl.WHITE)
-		rl.DrawRectangleLines(hx - 3, hue_bar_y - 3, 7, HUE_BAR_H + 6, {0, 0, 0, 180})
+		rl.DrawRectangleLines(hx - 3, hue_bar_y - 3, 7, HUE_BAR_H + 6, ui.SHADOW_MID)
 	} else {
 		wheel_size := i32(WHEEL_TEX_SIZE)
 		rl.DrawTexture(app.wheel_tex, px, py, rl.WHITE)
@@ -52,15 +52,15 @@ draw_picker :: proc(app: ^AppState, mouse: rl.Vector2, rects: []layout.Rect) {
 			angle := (app.cs.hue + offsets[i]) * math.PI / 180.0
 			hpx := center_x + math.cos(angle) * app.cs.sat * radius
 			hpy := center_y + math.sin(angle) * app.cs.sat * radius
-			rl.DrawCircleLines(i32(hpx), i32(hpy), 9, {0, 0, 0, 200})
+			rl.DrawCircleLines(i32(hpx), i32(hpy), 9, ui.SHADOW_DARK)
 			rl.DrawCircleLines(i32(hpx), i32(hpy), 8, rl.WHITE)
-			rl.DrawCircleLines(i32(hpx), i32(hpy), 7, {0, 0, 0, 200})
+			rl.DrawCircleLines(i32(hpx), i32(hpy), 7, ui.SHADOW_DARK)
 			if i > 0 {
 				prev_angle := (app.cs.hue + offsets[i - 1]) * math.PI / 180.0
 				prev_x := center_x + math.cos(prev_angle) * app.cs.sat * radius
 				prev_y := center_y + math.sin(prev_angle) * app.cs.sat * radius
-				rl.DrawLine(i32(prev_x), i32(prev_y), i32(hpx), i32(hpy), {0, 0, 0, 160})
-				rl.DrawLine(i32(prev_x) + 1, i32(prev_y), i32(hpx) + 1, i32(hpy), {255, 255, 255, 60})
+				rl.DrawLine(i32(prev_x), i32(prev_y), i32(hpx), i32(hpy), ui.SHADOW_LINE)
+				rl.DrawLine(i32(prev_x) + 1, i32(prev_y), i32(hpx) + 1, i32(hpy), ui.HIGHLIGHT_LINE)
 			}
 		}
 		if off_count > 2 {
@@ -70,16 +70,16 @@ draw_picker :: proc(app: ^AppState, mouse: rl.Vector2, rects: []layout.Rect) {
 			fy := i32(center_y + math.sin(first_angle) * app.cs.sat * radius)
 			lx := i32(center_x + math.cos(last_angle) * app.cs.sat * radius)
 			ly := i32(center_y + math.sin(last_angle) * app.cs.sat * radius)
-			rl.DrawLine(lx, ly, fx, fy, {0, 0, 0, 160})
-			rl.DrawLine(lx + 1, ly, fx + 1, fy, {255, 255, 255, 60})
+			rl.DrawLine(lx, ly, fx, fy, ui.SHADOW_LINE)
+			rl.DrawLine(lx + 1, ly, fx + 1, fy, ui.HIGHLIGHT_LINE)
 		}
 
 		sel_angle := app.cs.hue * math.PI / 180.0
 		sel_x := center_x + math.cos(sel_angle) * app.cs.sat * radius
 		sel_y := center_y + math.sin(sel_angle) * app.cs.sat * radius
-		rl.DrawCircle(i32(sel_x), i32(sel_y), 9, {0, 0, 0, 180})
+		rl.DrawCircle(i32(sel_x), i32(sel_y), 9, ui.SHADOW_MID)
 		rl.DrawCircleLines(i32(sel_x), i32(sel_y), 8, rl.WHITE)
-		rl.DrawCircleLines(i32(sel_x), i32(sel_y), 9, {0, 0, 0, 220})
+		rl.DrawCircleLines(i32(sel_x), i32(sel_y), 9, ui.SHADOW_OUTLINE)
 	}
 
 	toggle_rect := rl.Rectangle{controls.x, controls.y, 140, 26}
@@ -161,6 +161,19 @@ draw_right_column :: proc(app: ^AppState, mouse: rl.Vector2, cur_color: rl.Color
 	stw := rl.MeasureText(sample_text, 28)
 	rl.DrawText(sample_text, i32(preview_rect.x) + (i32(preview_rect.width) - stw) / 2, i32(preview_rect.y) + 36, 28, app.fg_slot)
 
+	bg_contrast := color.contrast_ratio(cur_color, ui.BG)
+	if bg_contrast < 3.0 {
+		warn_x := i32(preview_rect.x + preview_rect.width) - 24
+		warn_y := i32(preview_rect.y) + 6
+		rl.DrawTriangle(
+			{f32(warn_x), f32(warn_y + 14)},
+			{f32(warn_x + 14), f32(warn_y + 14)},
+			{f32(warn_x + 7), f32(warn_y)},
+			ui.YELLOW,
+		)
+		rl.DrawText("!", warn_x + 5, warn_y + 3, 10, ui.BG)
+	}
+
 	contrast_y := contrast_r.y
 	ratio := color.contrast_ratio(app.fg_slot, app.bg_slot)
 	rating := color.wcag_rating(ratio)
@@ -206,8 +219,8 @@ draw_right_column :: proc(app: ^AppState, mouse: rl.Vector2, cur_color: rl.Color
 	fg_well := rl.Rectangle{rx + rw - 76, contrast_y - 2, 32, 24}
 	bg_well := rl.Rectangle{fg_well.x + 40, fg_well.y, 32, 24}
 
-	fg_border := app.active_slot == .FG ? ui.ACCENT : rl.Color{255, 255, 255, 40}
-	bg_border := app.active_slot == .BG ? ui.ACCENT : rl.Color{255, 255, 255, 40}
+	fg_border := app.active_slot == .FG ? ui.ACCENT : ui.BORDER_SUBTLE
+	bg_border := app.active_slot == .BG ? ui.ACCENT : ui.BORDER_SUBTLE
 	rl.DrawRectangleRounded({fg_well.x - 2, fg_well.y - 2, fg_well.width + 4, fg_well.height + 4}, 0.2, 4, fg_border)
 	rl.DrawRectangleRounded(fg_well, 0.2, 4, app.fg_slot)
 	rl.DrawRectangleRounded({bg_well.x - 2, bg_well.y - 2, bg_well.width + 4, bg_well.height + 4}, 0.2, 4, bg_border)
@@ -263,7 +276,7 @@ draw_right_column :: proc(app: ^AppState, mouse: rl.Vector2, cur_color: rl.Color
 		ui.color_slider_draw(rx, sr, hsv_ratios[i], hsv_left[i], hsv_right[i], display_color, hsv_labels[i], hsv_texts[i], tex)
 	}
 
-	rl.DrawText("\u2318+C copy  \u2318+V paste  \u2318+Z undo  \u2318+S save", i32(rx), i32(hint_r.y), 12, ui.DIM)
+	rl.DrawText("\u2318C copy \u2318S save \u2318Z undo \u2318E export \u2318D cvd Tab harmony", i32(rx), i32(hint_r.y), 10, ui.DIM)
 
 	rl.DrawText("History", i32(rx), i32(history_r.y), 12, ui.DIM)
 	if app.history_count > 0 {
@@ -276,6 +289,12 @@ draw_right_column :: proc(app: ^AppState, mouse: rl.Vector2, cur_color: rl.Color
 				rl.DrawRectangleRounded({hr.x - 1, hr.y - 1, hr.width + 2, hr.height + 2}, 0.2, 4, ui.ACCENT)
 			}
 			rl.DrawRectangleRounded(hr, 0.2, 4, c)
+			if hovering {
+				tip := ui.format_hex_cstr(c)
+				tw := rl.MeasureText(tip, 11)
+				rl.DrawRectangleRounded({hr.x - 2, hr.y - 18, f32(tw + 6), 16}, 0.3, 4, ui.SURFACE)
+				rl.DrawText(tip, i32(hr.x), i32(hr.y) - 16, 11, ui.TEXT_CLR)
+			}
 		}
 	}
 }
@@ -321,7 +340,7 @@ draw_palette_section :: proc(app: ^AppState, mouse: rl.Vector2, display_color: r
 		} else if i == app.palette_hover && !app.palette_dragging {
 			rl.DrawRectangleRounded({sr.x - 2, sr.y - 2, sr.width + 4, sr.height + 4}, 0.15, 4, ui.ACCENT)
 		} else {
-			rl.DrawRectangleRounded({sr.x - 1, sr.y - 1, sr.width + 2, sr.height + 2}, 0.15, 4, {255, 255, 255, 15})
+			rl.DrawRectangleRounded({sr.x - 1, sr.y - 1, sr.width + 2, sr.height + 2}, 0.15, 4, ui.BORDER_DIM)
 		}
 
 		alpha: u8 = is_drag_source ? 100 : 255
@@ -330,7 +349,7 @@ draw_palette_section :: proc(app: ^AppState, mouse: rl.Vector2, display_color: r
 		if i == app.palette_hover && !app.palette_dragging {
 			xr := rl.Rectangle{sr.x + sr.width - 12, sr.y - 4, 16, 16}
 			xr_hover := rl.CheckCollisionPointRec(mouse, xr)
-			rl.DrawRectangleRounded(xr, 0.3, 4, xr_hover ? ui.RED : rl.Color{60, 60, 80, 230})
+			rl.DrawRectangleRounded(xr, 0.3, 4, xr_hover ? ui.RED : ui.BADGE_BG)
 			rl.DrawText("x", i32(xr.x) + 4, i32(xr.y) + 1, 12, rl.WHITE)
 		}
 
@@ -361,18 +380,18 @@ draw_palette_section :: proc(app: ^AppState, mouse: rl.Vector2, display_color: r
 		dc := app.palette[app.palette_drag]
 		gr := rl.Rectangle{mouse.x - data.SWATCH_SZ / 2, mouse.y - data.SWATCH_SZ / 2, data.SWATCH_SZ, data.SWATCH_SZ}
 		rl.DrawRectangleRounded(gr, 0.15, 4, {dc.r, dc.g, dc.b, 180})
-		rl.DrawRectangleRounded({gr.x - 1, gr.y - 1, gr.width + 2, gr.height + 2}, 0.15, 4, {255, 255, 255, 60})
+		rl.DrawRectangleRounded({gr.x - 1, gr.y - 1, gr.width + 2, gr.height + 2}, 0.15, 4, ui.DRAG_GHOST)
 	}
 
 	add_btn := data.swatch_rect(app.palette_count, swatch_start_y, cpr, pal_x)
 	add_btn_hover := app.palette_count < data.MAX_PALETTE && rl.CheckCollisionPointRec(mouse, add_btn)
 	if app.palette_count < data.MAX_PALETTE {
-		rl.DrawRectangleRounded({add_btn.x - 1, add_btn.y - 1, add_btn.width + 2, add_btn.height + 2}, 0.15, 4, add_btn_hover ? ui.ACCENT : rl.Color{255, 255, 255, 15})
+		rl.DrawRectangleRounded({add_btn.x - 1, add_btn.y - 1, add_btn.width + 2, add_btn.height + 2}, 0.15, 4, add_btn_hover ? ui.ACCENT : ui.BORDER_DIM)
 		rl.DrawRectangleRounded(add_btn, 0.15, 4, display_color)
-		rl.DrawRectangleRounded(add_btn, 0.15, 4, {0, 0, 0, 90})
+		rl.DrawRectangleRounded(add_btn, 0.15, 4, ui.SWATCH_OVERLAY)
 		pcx := i32(add_btn.x) + data.SWATCH_SZ / 2
 		pcy := i32(add_btn.y) + data.SWATCH_SZ / 2
-		plus_clr := add_btn_hover ? rl.Color{255, 255, 255, 255} : rl.Color{255, 255, 255, 180}
+		plus_clr := add_btn_hover ? rl.WHITE : rl.Color{255, 255, 255, 180}
 		rl.DrawRectangle(pcx - 7, pcy - 1, 14, 3, plus_clr)
 		rl.DrawRectangle(pcx - 1, pcy - 7, 3, 14, plus_clr)
 	}
@@ -390,6 +409,13 @@ draw_palette_section :: proc(app: ^AppState, mouse: rl.Vector2, display_color: r
 
 	ui.button_draw(to_rl_rect(export_r), "Export", mouse, 14)
 	rl.DrawText("Drop an image to extract colors", i32(export_r.x) + 136, i32(export_r.y) + 7, 12, ui.DIM)
+
+	if app.status_timer > 0 && app.status_message != nil {
+		tw := rl.MeasureText(app.status_message, 13)
+		tx := i32(export_r.x + export_r.w) - tw - 8
+		ty := i32(export_r.y) + 7
+		rl.DrawText(app.status_message, tx, ty, 13, ui.YELLOW)
+	}
 }
 
 draw_export_panel :: proc(app: ^AppState, mouse: rl.Vector2, rects: []layout.Rect) {
@@ -469,7 +495,7 @@ draw_extract_modal :: proc(app: ^AppState, mouse: rl.Vector2, rects: []layout.Re
 		if hovering {
 			rl.DrawRectangleRounded({sr.x - 2, sr.y - 2, sr.width + 4, sr.height + 4}, 0.15, 4, ui.ACCENT)
 		} else {
-			rl.DrawRectangleRounded({sr.x - 1, sr.y - 1, sr.width + 2, sr.height + 2}, 0.15, 4, {255, 255, 255, 15})
+			rl.DrawRectangleRounded({sr.x - 1, sr.y - 1, sr.width + 2, sr.height + 2}, 0.15, 4, ui.BORDER_DIM)
 		}
 		rl.DrawRectangleRounded(sr, 0.15, 4, app.extracted[i])
 

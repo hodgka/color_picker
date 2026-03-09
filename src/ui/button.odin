@@ -23,8 +23,8 @@ button_draw :: proc(
 	bg: rl.Color
 	text: rl.Color
 	if disabled {
-		bg = rl.Color{35, 35, 48, 255}
-		text = rl.Color{70, 70, 90, 255}
+		bg = DISABLED_BG
+		text = DISABLED_TEXT
 	} else if hovering {
 		bg = ACCENT
 		text = BG
@@ -58,7 +58,7 @@ draw_toggle :: proc(
 			bg = ACCENT
 			text = BG
 		} else if hovering {
-			bg = rl.Color{58, 58, 82, 255}
+			bg = HOVER_BG
 			text = TEXT_CLR
 		} else {
 			bg = OVERLAY

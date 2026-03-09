@@ -2,14 +2,56 @@ package color_picker
 
 import rl "vendor:raylib"
 import "core:fmt"
+import "core:os"
 import "color"
 import "ui"
 import "ui/layout"
 import "data"
 
+VERSION :: #config(VERSION, "dev")
+
+VERBOSE: bool
+
+ALLOWED_IMAGE_EXTENSIONS :: [?]cstring{".png", ".jpg", ".jpeg", ".bmp", ".gif", ".tga", ".psd", ".hdr"}
+MAX_DROP_FILE_SIZE :: 50 * 1024 * 1024
+
+is_valid_image_drop :: proc(path: cstring) -> bool {
+	ext := rl.GetFileExtension(path)
+	if ext == nil do return false
+	for allowed in ALLOWED_IMAGE_EXTENSIONS {
+		if ext == allowed do return true
+	}
+	return false
+}
+
+log_info :: proc(msg: string, args: ..any) {
+	if !VERBOSE do return
+	fmt.eprintf("[INFO] ")
+	fmt.eprintfln(msg, ..args)
+}
+
+log_error :: proc(msg: string, args: ..any) {
+	fmt.eprintf("[ERROR] ")
+	fmt.eprintfln(msg, ..args)
+}
+
 main :: proc() {
+	for arg in os.args[1:] {
+		if arg == "--version" || arg == "-v" {
+			fmt.printfln("Color Picker %s", VERSION)
+			return
+		}
+		if arg == "--verbose" {
+			VERBOSE = true
+		}
+	}
+
+	data.set_verbose(VERBOSE)
+	log_info("Starting Color Picker %s", VERSION)
+
 	rl.SetConfigFlags({.MSAA_4X_HINT, .VSYNC_HINT, .WINDOW_RESIZABLE})
-	rl.InitWindow(960, 780, "Color Picker")
+	title := fmt.ctprintf("Color Picker %s", VERSION)
+	rl.InitWindow(960, 780, title)
 	defer rl.CloseWindow()
 	rl.SetTargetFPS(60)
 
@@ -39,6 +81,7 @@ main :: proc() {
 	app.wheel_tex = rl.LoadTextureFromImage(app.wheel_img)
 
 	app.palette_count = data.load_palette(app.palette[:], data.PALETTE_FILE)
+	log_info("Loaded %d palette colors from %s", app.palette_count, data.PALETTE_FILE)
 	update_harmony(&app)
 	update_shades(&app)
 
@@ -64,6 +107,7 @@ main :: proc() {
 		dt := rl.GetFrameTime()
 		mouse := rl.GetMousePosition()
 		if app.copied_timer > 0 do app.copied_timer -= dt
+		if app.status_timer > 0 do app.status_timer -= dt
 
 		sw := f32(rl.GetScreenWidth())
 		sh := f32(rl.GetScreenHeight())
@@ -106,8 +150,20 @@ main :: proc() {
 			files := rl.LoadDroppedFiles()
 			defer rl.UnloadDroppedFiles(files)
 			if files.count > 0 {
-				img := rl.LoadImage(files.paths[0])
-				if img.data != nil {
+				dropped_path := files.paths[0]
+				log_info("File dropped: %s", dropped_path)
+
+				valid_drop := is_valid_image_drop(dropped_path)
+				if !valid_drop {
+					set_status(&app, "Unsupported file type")
+					log_info("Rejected file drop: unsupported extension")
+				}
+
+				img: rl.Image
+				if valid_drop {
+					img = rl.LoadImage(dropped_path)
+				}
+				if valid_drop && img.data != nil {
 					if app.extract_has_img {
 						rl.UnloadImage(app.extract_img)
 						rl.UnloadTexture(app.extract_tex)
@@ -118,6 +174,9 @@ main :: proc() {
 					app.extract_open = true
 					if app.extract_req < 2 do app.extract_req = data.EXTRACT_COUNT
 					app.extracted, app.extracted_count = data.extract_palette_from_image(img, app.extract_req)
+				} else if valid_drop {
+					set_status(&app, "Failed to load image")
+					log_error("LoadImage returned nil for dropped file")
 				}
 			}
 		}
@@ -170,22 +229,28 @@ main :: proc() {
 				colors := app.palette[:app.palette_count]
 				name := ui.text_input_get_string(&app.export_name)
 
-				if ui.button_update(save_rect, mouse) {
-					exts := [7]string{".ase", ".gpl", ".css", ".js", ".json", ".png", ".txt"}
-					ext := exts[app.export_format]
-					path := string(fmt.ctprintf("%s%s", name, ext))
-					switch app.export_format {
-					case 0: data.export_ase(colors, path)
-					case 1: data.export_gpl(colors, path)
-					case 5: data.export_png_strip(colors, path)
-					case:
-						text := export_for_format(colors, app.export_format)
-						data.export_text_file(text, path)
-					}
-					app.export_open = false
-					app.export_name.focused = false
-					app.copied_timer = 1.5
+			if ui.button_update(save_rect, mouse) {
+				exts := [7]string{".ase", ".gpl", ".css", ".js", ".json", ".png", ".txt"}
+				ext := exts[app.export_format]
+				path := string(fmt.ctprintf("%s%s", name, ext))
+				ok: bool
+				switch app.export_format {
+				case 0: ok = data.export_ase(colors, path)
+				case 1: ok = data.export_gpl(colors, path)
+				case 5: ok = data.export_png_strip(colors, path)
+				case:
+					text := export_for_format(colors, app.export_format)
+					ok = data.export_text_file(text, path)
 				}
+				if ok {
+					set_status(&app, "Exported successfully")
+				} else {
+					set_status(&app, "Export failed")
+				}
+				app.export_open = false
+				app.export_name.focused = false
+				app.copied_timer = 1.5
+			}
 				if ui.button_update(copy_rect, mouse) {
 					rl.SetClipboardText(export_for_format(colors, app.export_format))
 					app.copied_timer = 1.5
@@ -333,10 +398,42 @@ main :: proc() {
 				}
 				if ui.is_cmd_down() && rl.IsKeyPressed(.S) || rl.IsKeyPressed(.SPACE) {
 					c := color.color_get(&app.cs)
+					palette_undo_push(&app)
 					if data.palette_add(app.palette[:], &app.palette_count, c) {
-						data.save_palette(app.palette[:app.palette_count], data.PALETTE_FILE)
+						save_palette_with_status(&app)
 						commit_color(&app)
 					}
+				}
+				if ui.is_cmd_down() && rl.IsKeyPressed(.Z) {
+					if palette_undo_pop(&app) {
+						set_status(&app, "Undo")
+					}
+				}
+				if ui.is_cmd_down() && rl.IsKeyPressed(.E) {
+					app.export_open = !app.export_open
+				}
+				if ui.is_cmd_down() && rl.IsKeyPressed(.D) {
+					next := (int(app.cvd_mode) + 1) % (int(max(color.CvdType)) + 1)
+					app.cvd_mode = color.CvdType(next)
+				}
+				if ui.is_cmd_down() && rl.IsKeyPressed(.I) {
+					if data.eyedropper_capture() {
+						app.eyedropper_img = rl.LoadImage(data.SCREENSHOT_PATH)
+						if app.eyedropper_img.data != nil {
+							app.eyedropper_tex = rl.LoadTextureFromImage(app.eyedropper_img)
+							app.eyedropper_active = true
+						}
+					}
+				}
+				if rl.IsKeyPressed(.TAB) {
+					ht_count := int(max(color.HarmonyType)) + 1
+					if rl.IsKeyDown(.LEFT_SHIFT) || rl.IsKeyDown(.RIGHT_SHIFT) {
+						app.harmony_type = (app.harmony_type - 1 + ht_count) % ht_count
+					} else {
+						app.harmony_type = (app.harmony_type + 1) % ht_count
+					}
+					update_harmony(&app)
+					update_shades(&app)
 				}
 			}
 
@@ -358,8 +455,9 @@ main :: proc() {
 			if rl.IsMouseButtonPressed(.LEFT) {
 				if add_btn_hover {
 					c := color.color_get(&app.cs)
+					palette_undo_push(&app)
 					if data.palette_add(app.palette[:], &app.palette_count, c) {
-						data.save_palette(app.palette[:app.palette_count], data.PALETTE_FILE)
+						save_palette_with_status(&app)
 						commit_color(&app)
 					}
 					app.hex_input.focused = false
@@ -371,8 +469,9 @@ main :: proc() {
 
 			if rl.IsMouseButtonReleased(.LEFT) && app.palette_dragging {
 				if app.palette_hover >= 0 && app.palette_hover != app.palette_drag {
+					palette_undo_push(&app)
 					data.palette_move(app.palette[:], app.palette_count, app.palette_drag, app.palette_hover)
-					data.save_palette(app.palette[:app.palette_count], data.PALETTE_FILE)
+					save_palette_with_status(&app)
 				} else if app.palette_hover == app.palette_drag {
 					color.color_set_rgb(&app.cs, app.palette[app.palette_hover])
 					app.hex_input.focused = false
@@ -382,8 +481,9 @@ main :: proc() {
 			}
 
 			if rl.IsMouseButtonPressed(.RIGHT) && app.palette_hover >= 0 {
+				palette_undo_push(&app)
 				if data.palette_remove(app.palette[:], &app.palette_count, app.palette_hover) {
-					data.save_palette(app.palette[:app.palette_count], data.PALETTE_FILE)
+					save_palette_with_status(&app)
 				}
 			}
 		}
