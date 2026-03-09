@@ -18,6 +18,7 @@ ODIN="$(resolve_odin)" || {
     exit 1
 }
 RELEASE=false
+APP_VERSION=""
 
 usage() {
     cat <<EOF
@@ -26,8 +27,9 @@ Usage: $(basename "$0") [OPTIONS]
 Build the Color Picker binary for the current platform.
 
 Options:
-  --release       Optimized build (-o:speed, assertions disabled)
-  --help          Show this help message
+  --release           Optimized build (-o:speed, assertions disabled)
+  --version VERSION   Embed version string into the binary (e.g. 1.2.3)
+  --help              Show this help message
 
 Environment:
   ODIN            Path to the Odin compiler (default: odin on \$PATH)
@@ -35,6 +37,7 @@ Environment:
 Examples:
   ./scripts/build.sh
   ./scripts/build.sh --release
+  ./scripts/build.sh --release --version 1.2.3
   ODIN=/usr/local/bin/odin ./scripts/build.sh --release
 EOF
     exit 0
@@ -43,6 +46,7 @@ EOF
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --release) RELEASE=true; shift ;;
+        --version) APP_VERSION="$2"; shift 2 ;;
         --help)    usage ;;
         *)         echo "Unknown option: $1" >&2; exit 1 ;;
     esac
@@ -59,11 +63,15 @@ mkdir -p "$PROJECT_ROOT/bin"
 
 BUILD_FLAGS=(-out:"$PROJECT_ROOT/bin/color_picker")
 
+if [[ -n "$APP_VERSION" ]]; then
+    BUILD_FLAGS+=(-define:VERSION="$APP_VERSION")
+fi
+
 if [[ "$RELEASE" == true ]]; then
     BUILD_FLAGS+=(-o:speed -disable-assert)
-    echo "Building Color Picker ($PLATFORM, release)..."
+    echo "Building Color Picker ($PLATFORM, release${APP_VERSION:+, v$APP_VERSION})..."
 else
-    echo "Building Color Picker ($PLATFORM, debug)..."
+    echo "Building Color Picker ($PLATFORM, debug${APP_VERSION:+, v$APP_VERSION})..."
 fi
 
 "$ODIN" build "$PROJECT_ROOT/src/" "${BUILD_FLAGS[@]}"

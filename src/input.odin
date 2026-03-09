@@ -152,8 +152,9 @@ handle_palette_input :: proc(app: ^AppState, mouse: rl.Vector2, rects: []layout.
 
 	if app.palette_count > 0 {
 		if ui.button_update({pal_x + 76, palette_label_y - 2, 64, 20}, mouse) {
+			palette_undo_push(app)
 			app.palette_count = 0
-			data.save_palette(app.palette[:0], data.PALETTE_FILE)
+			save_palette_with_status(app)
 		}
 	}
 
@@ -162,8 +163,9 @@ handle_palette_input :: proc(app: ^AppState, mouse: rl.Vector2, rects: []layout.
 		if i == app.palette_hover && !app.palette_dragging {
 			xr := rl.Rectangle{sr.x + sr.width - 12, sr.y - 4, 16, 16}
 			if rl.IsMouseButtonPressed(.LEFT) && rl.CheckCollisionPointRec(mouse, xr) {
+				palette_undo_push(app)
 				data.palette_remove(app.palette[:], &app.palette_count, i)
-				data.save_palette(app.palette[:app.palette_count], data.PALETTE_FILE)
+				save_palette_with_status(app)
 				app.palette_hover = -1
 			}
 		}
@@ -212,10 +214,11 @@ handle_extract_input :: proc(app: ^AppState, mouse: rl.Vector2, rects: []layout.
 		app.extract_open = false
 	}
 	if ui.button_update({px + 130, btn_y, 140, 30}, mouse) {
+		palette_undo_push(app)
 		for i in 0 ..< app.extracted_count {
 			data.palette_add(app.palette[:], &app.palette_count, app.extracted[i])
 		}
-		data.save_palette(app.palette[:app.palette_count], data.PALETTE_FILE)
+		save_palette_with_status(app)
 		app.extract_open = false
 	}
 	if ui.button_update({px + panel_w - 90, btn_y, 70, 30}, mouse) {

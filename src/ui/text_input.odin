@@ -301,7 +301,7 @@ text_input_draw :: proc(
 	prefix: cstring = "",
 	x_offset: i32 = 10,
 ) {
-	bg := ti.focused ? rl.Color{58, 58, 82, 255} : OVERLAY
+	bg := ti.focused ? HOVER_BG : OVERLAY
 	rl.DrawRectangleRounded(rect, 0.3, 6, bg)
 	if ti.focused {
 		rl.DrawRectangleRounded(
@@ -335,7 +335,7 @@ text_input_draw :: proc(
 		hi_str[hi] = 0
 		sel_x := rl.MeasureText(cstring(&lo_str[0]), font_size)
 		sel_w := rl.MeasureText(cstring(&hi_str[0]), font_size) - sel_x
-		rl.DrawRectangle(char_x + sel_x, ty, sel_w, font_size, {137, 180, 250, 80})
+		rl.DrawRectangle(char_x + sel_x, ty, sel_w, font_size, SELECTION_HL)
 	}
 
 	rl.DrawText(cstring(&text_str[0]), char_x, ty, font_size, TEXT_CLR)

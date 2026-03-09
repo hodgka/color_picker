@@ -23,7 +23,7 @@ _hex_list :: proc(colors: []rl.Color) -> string {
 	return fmt.tprintf("%s", string(buf[:offset]))
 }
 
-export_gpl :: proc(colors: []rl.Color, path: string) {
+export_gpl :: proc(colors: []rl.Color, path: string) -> bool {
 	buf: [MAX_PALETTE * 20 + 64]u8
 	offset := 0
 
@@ -34,7 +34,9 @@ export_gpl :: proc(colors: []rl.Color, path: string) {
 		s2 := fmt.bprintf(buf[offset:], "%3d %3d %3d\t#%02X%02X%02X\n", c.r, c.g, c.b, c.r, c.g, c.b)
 		offset += len(s2)
 	}
-	_ = os.write_entire_file(path, buf[:offset])
+	err := os.write_entire_file(path, buf[:offset])
+	if err == nil { log_info("Exported GPL to %s", path) } else { log_error("Failed to export GPL to %s", path) }
+	return err == nil
 }
 
 export_css :: proc(colors: []rl.Color) -> cstring {
@@ -109,13 +111,15 @@ export_json :: proc(colors: []rl.Color) -> cstring {
 	return fmt.ctprintf("%s", string(buf[:offset]))
 }
 
-export_text_file :: proc(text: cstring, path: string) {
+export_text_file :: proc(text: cstring, path: string) -> bool {
 	s := string(text)
-	_ = os.write_entire_file(path, transmute([]u8)s)
+	err := os.write_entire_file(path, transmute([]u8)s)
+	if err == nil { log_info("Exported text to %s", path) } else { log_error("Failed to export text to %s", path) }
+	return err == nil
 }
 
-export_png_strip :: proc(colors: []rl.Color, path: string, swatch_w: i32 = 50, swatch_h: i32 = 50) {
-	if len(colors) == 0 do return
+export_png_strip :: proc(colors: []rl.Color, path: string, swatch_w: i32 = 50, swatch_h: i32 = 50) -> bool {
+	if len(colors) == 0 do return false
 	w := swatch_w * i32(len(colors))
 	img := rl.GenImageColor(w, swatch_h, rl.BLANK)
 	defer rl.UnloadImage(img)
@@ -124,10 +128,12 @@ export_png_strip :: proc(colors: []rl.Color, path: string, swatch_w: i32 = 50, s
 		rl.ImageDrawRectangle(&img, i32(i) * swatch_w, 0, swatch_w, swatch_h, c)
 	}
 
-	rl.ExportImage(img, fmt.ctprintf("%s", path))
+	ok := rl.ExportImage(img, fmt.ctprintf("%s", path))
+	if ok { log_info("Exported PNG strip to %s", path) } else { log_error("Failed to export PNG strip to %s", path) }
+	return ok
 }
 
-export_ase :: proc(colors: []rl.Color, path: string) {
+export_ase :: proc(colors: []rl.Color, path: string) -> bool {
 	n := len(colors)
 	header_size :: 12
 	entry_size :: 36
@@ -168,5 +174,7 @@ export_ase :: proc(colors: []rl.Color, path: string) {
 		write_be16(buf[:], &off, 0)
 	}
 
-	_ = os.write_entire_file(path, buf[:off])
+	err := os.write_entire_file(path, buf[:off])
+	if err == nil { log_info("Exported ASE to %s", path) } else { log_error("Failed to export ASE to %s", path) }
+	return err == nil
 }

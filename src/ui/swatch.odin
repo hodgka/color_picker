@@ -29,7 +29,7 @@ draw_color_swatch_row :: proc(
 				{r.x - 1, r.y - 1, r.width + 2, r.height + 2},
 				0.15,
 				4,
-				{255, 255, 255, 15},
+				BORDER_DIM,
 			)
 		}
 		rl.DrawRectangleRounded(r, 0.15, 4, c)

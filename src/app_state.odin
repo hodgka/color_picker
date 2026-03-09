@@ -26,6 +26,13 @@ DragState :: struct {
 
 EXPORT_FORMATS :: [7]cstring{"ASE", "GPL", "CSS", "Tailwind", "JSON", "PNG", "TXT"}
 
+PALETTE_UNDO_MAX :: 32
+
+PaletteSnapshot :: struct {
+	colors: [data.MAX_PALETTE]rl.Color,
+	count:  int,
+}
+
 AppState :: struct {
 	cs:              color.ColorState,
 	picker_mode:     PickerMode,
@@ -76,6 +83,10 @@ AppState :: struct {
 	export_format:     int,
 	export_fmt_open:   bool,
 	export_name:       ui.TextInput,
+	status_message:    cstring,
+	status_timer:      f32,
+	palette_undo:      [PALETTE_UNDO_MAX]PaletteSnapshot,
+	palette_undo_count: int,
 }
 
 commit_color :: proc(app: ^AppState) {
@@ -108,6 +119,44 @@ sync_hex_from_color :: proc(app: ^AppState) {
 	c := color.color_get(&app.cs)
 	hex_str := color.color_to_hex_string(c)
 	ui.text_input_set_string(&app.hex_input, string(hex_str[1:7]))
+}
+
+set_status :: proc(app: ^AppState, msg: cstring, duration: f32 = 2.0) {
+	app.status_message = msg
+	app.status_timer = duration
+}
+
+save_palette_with_status :: proc(app: ^AppState) {
+	if !data.save_palette(app.palette[:app.palette_count], data.PALETTE_FILE) {
+		set_status(app, "Failed to save palette")
+	}
+}
+
+palette_undo_push :: proc(app: ^AppState) {
+	snap := PaletteSnapshot{app.palette, app.palette_count}
+	if app.palette_undo_count > 0 {
+		top := app.palette_undo[app.palette_undo_count - 1]
+		if top.count == snap.count && top.colors == snap.colors do return
+	}
+	if app.palette_undo_count < PALETTE_UNDO_MAX {
+		app.palette_undo[app.palette_undo_count] = snap
+		app.palette_undo_count += 1
+	} else {
+		for i in 1 ..< PALETTE_UNDO_MAX {
+			app.palette_undo[i - 1] = app.palette_undo[i]
+		}
+		app.palette_undo[PALETTE_UNDO_MAX - 1] = snap
+	}
+}
+
+palette_undo_pop :: proc(app: ^AppState) -> bool {
+	if app.palette_undo_count == 0 do return false
+	app.palette_undo_count -= 1
+	snap := app.palette_undo[app.palette_undo_count]
+	app.palette = snap.colors
+	app.palette_count = snap.count
+	save_palette_with_status(app)
+	return true
 }
 
 export_for_format :: proc(colors: []rl.Color, format: int) -> cstring {

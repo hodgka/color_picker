@@ -40,7 +40,7 @@ dropdown_draw :: proc(
 	mouse: rl.Vector2,
 ) {
 	hovering := rl.CheckCollisionPointRec(mouse, rect)
-	bg := is_open || hovering ? rl.Color{58, 58, 82, 255} : OVERLAY
+	bg := is_open || hovering ? HOVER_BG : OVERLAY
 	rl.DrawRectangleRounded(rect, 0.3, 6, bg)
 
 	if selected >= 0 && selected < len(items) {

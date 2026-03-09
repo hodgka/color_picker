@@ -5,6 +5,21 @@ import "core:fmt"
 import "core:os"
 import "../color"
 
+verbose: bool
+
+set_verbose :: proc(v: bool) { verbose = v }
+
+log_info :: proc(msg: string, args: ..any) {
+	if !verbose do return
+	fmt.eprintf("[INFO] data: ")
+	fmt.eprintfln(msg, ..args)
+}
+
+log_error :: proc(msg: string, args: ..any) {
+	fmt.eprintf("[ERROR] data: ")
+	fmt.eprintfln(msg, ..args)
+}
+
 SWATCH_SZ     :: 32
 SWATCH_GAP    :: 5
 SWATCH_STRIDE :: SWATCH_SZ + SWATCH_GAP
@@ -60,7 +75,10 @@ swatch_rect :: proc(index: int, base_y: f32, cols_per_row: int, margin: f32 = 24
 
 load_palette :: proc(palette: []rl.Color, path: string) -> int {
 	data, err := os.read_entire_file_from_path(path, context.allocator)
-	if err != nil do return 0
+	if err != nil {
+		log_info("No palette file at %s (or read error)", path)
+		return 0
+	}
 	defer delete(data)
 
 	count := 0
@@ -83,12 +101,18 @@ load_palette :: proc(palette: []rl.Color, path: string) -> int {
 	return count
 }
 
-save_palette :: proc(colors: []rl.Color, path: string) {
+save_palette :: proc(colors: []rl.Color, path: string) -> bool {
 	buf: [MAX_PALETTE * 9]u8
 	offset := 0
 	for c in colors {
 		s := fmt.bprintf(buf[offset:], "#%02X%02X%02X\n", c.r, c.g, c.b)
 		offset += len(s)
 	}
-	_ = os.write_entire_file(path, buf[:offset])
+	err := os.write_entire_file(path, buf[:offset])
+	if err == nil {
+		log_info("Saved %d colors to %s", len(colors), path)
+	} else {
+		log_error("Failed to save palette to %s", path)
+	}
+	return err == nil
 }

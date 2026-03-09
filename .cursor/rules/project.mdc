@@ -19,6 +19,7 @@ All source lives under `src/`.
 - `src/ui/` — Theme, layout constants, and reusable components. May import `color/` and `ui/layout/`. Never imports `data/`.
 - `src/ui/layout/` — Pure layout engine. Declares size requirements, computes concrete rectangles from screen dimensions. Zero dependencies (no Raylib, no other packages).
 - `src/data/` — Persistence, export, OS integration. May import `color/`.
+- `src/test_across_modules/` — Cross-module integration tests. Imports `color/`, `data/`, and `ui/layout/`. Test-only, no production code.
 - `src/` (root package `color_picker`) — `AppState`, main loop, input handling, draw procedures. Imports all sub-packages.
 
 ### Adding a new package
@@ -43,6 +44,7 @@ odin build src/ -out:bin/color_picker
 odin test src/color/
 odin test src/data/
 odin test src/ui/layout/
+odin test src/test_across_modules/
 ```
 
-Only `src/color/`, `src/data/`, and `src/ui/layout/` have tests. The root and `ui/` packages depend on Raylib initialization and are tested manually.
+`src/color/`, `src/data/`, `src/ui/layout/`, and `src/test_cross/` have tests. The root and `ui/` packages depend on Raylib initialization and are tested manually.

@@ -22,6 +22,7 @@ TEST_PACKAGES=(
     "src/color"
     "src/data"
     "src/ui/layout"
+    "src/test_across_modules"
 )
 
 FAILED=0

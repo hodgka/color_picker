@@ -27,7 +27,7 @@ modal_draw :: proc(
 	panel_w, panel_h: f32,
 	title: cstring,
 ) {
-	rl.DrawRectangle(0, 0, i32(screen_w), i32(screen_h), {0, 0, 0, 120})
+	rl.DrawRectangle(0, 0, i32(screen_w), i32(screen_h), OVERLAY_BG)
 
 	px := screen_w / 2 - panel_w / 2
 	py := screen_h / 2 - panel_h / 2
